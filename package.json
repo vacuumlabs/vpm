@@ -1,0 +1,38 @@
+{
+  "name": "twa",
+  "version": "0.0.0",
+  "description": "Package manager",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "mpinter",
+  "license": "ISC",
+  "preferGlobal": true,
+  "bin": {
+    "twa": "test.js"
+  },
+  "devDependencies": {
+    "babel-core": "^6.3.26",
+    "babel-preset-async-to-bluebird": "^1.0.0",
+    "babel-preset-es2015": "^6.3.13",
+    "babel-preset-stage-2": "^6.3.13"
+  },
+  "babel": {
+    "presets": [
+      "async-to-bluebird",
+      "es2015",
+      "stage-2"
+    ],
+    "plugins": []
+  },
+  "dependencies": {
+    "babel-polyfill": "^6.3.14",
+    "fastqueue": "^0.1.0",
+    "gunzip-maybe": "^1.2.1",
+    "request": "^2.67.0",
+    "request-promise": "^1.0.2",
+    "semver": "^5.1.0",
+    "tar-fs": "^1.9.0"
+  }
+}
