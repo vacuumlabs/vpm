@@ -12,96 +12,143 @@ const rp = require('request-promise')
 // something else than just strings, please use immutable.js . If there is really, really good
 // reason for using the es6 Maps, let's discuss it then.
 
+// TODO - is this an OK practice ? (if I want a variable exposed to all top-level functions and not to worry about passing it around)
+
 let packageMap = new Map()
+let promiseMap = new Map()
 
-const DependencyGraph = (packageJSON) => {
-  console.log(packageJSON)
-  let state = {
-    packageMap,
-    requiredPackages: mapNewDependencies(packageJSON)
+// factory functions
+
+const PackageMap = () => {
+  return {
+    getPromise: (name) => {
+      return new Promise((resolve, reject) => {
+        if (packageMap.has(name)) {
+          let packageNode = packageNodeMap.get(name)
+          if (packageNode.resolved) {
+            resolve(packageNode)
+          } else {
+            packageNode.resolved = true
+            packageNode.resolve().then(_ => resolve(packageNode))
+          }
+        } else {
+          reject(undefined)
+        }
+      })
+    }
   }
-  return Object.assign(
-    {},
-    state
-  )
 }
 
-const PackageNode = (name, semverRange = '*') => {
-  let state = {
+const DependencyGraph = (packages) => {
+  return {
+    packageMap: PackageMap(),
+    requiredSet: packages
+  }
+}
+
+// each package node is essentialy a disjunction (between dependency nodes) of conjunctions (packages listed in each dep. node)
+const PackageNode = (name, versions) => {
+  dependencyNodes = []
+  for (let semverAndDepArray of iterateDependencyChanges(versions)) {
+    dependencyNodes.push(DependencyNode(name, ...semverAndDepArray))
+  }
+  let obj = {
     name,
-    dependencyNodes: mapDependencyNodes(name, semverRange),
-    satisfied: false
+    dependencyNodes,
+    resolved: false, // TODO set this from within resolve function ?
+    resolve: resolveDependencyNodes(dependencyNodes)
   }
-  console.log(`PACKAGE ${name}`)
-  return Object.assign(
-    {},
-    state
-  )
+  packageMap.set(name, obj)
+  return obj
 }
 
-const DependencyNode = (name, semverRange, dependencies) => {
-  let state = {
+const DependencyNode = (name, semverRange, dependencyArray) => {
+ return {
     name,
     semverRange,
-    dependencies
+    dependencyArray,
+    resolve: dependenciesToPackageNodes(dependencyArray) // TODO add resolved ?
   }
-  console.log(`dependency ${name}`)
-  return Object.assign(
-    {},
-    state
-  )
+}
+
+// promise factories
+
+const promisePackageNode = (name) => {
+  if (promiseMap.has(name)) return promiseMap.get(name)
+  let promise = new Promise((resolve, reject) => {
+    rp(`http://registry.npmjs.org/${name}`)
+      .then(data => {
+        if (packageMap.packages.has(name)) resolve(false) //if by the time callback is called we already have the package..
+        let dependencyNodes = []
+        let versions = utils.toMap(
+          utils.toArray(JSON.parse(data).versions)
+            .map( data => [data[0],utils.toMap(data[1].dependencies)])
+            //.filter( data => semver.satisfies(data[0],semverRange))
+        )
+        resolve(PackageNode(name,versions))
+      })
+  })
+  promiseMap.set(name,promise)
+  return promise
+}
+
+const promiseDependencyGraph = (packageJSON) => {
+  return new Promise((resolve, reject) => {
+    dependenciesToPackageNodes(packageJSON.dependencies)
+      .then( packages => resolve(DependencyGraph(packages)))
+  })
 }
 
 // functions
 
-const mapNewDependencies = (packageJSON) => {
-  return new Map(
-    Object.toArray(packageJSON.dependencies).map((i) => {
-      if (!packageMap.has(i[0])) packageMap.set(i[0],PackageNode(i[0],i[1]))
-      return [i[0], packageMap[i[0]]]
+const resolveDependencyNodes = (dependencyNodes) => {
+  return () => {
+    return new Promise((resolve, reject) => {
+      Promise.all(
+        dependencyNodes.map( node => {
+          node.resolve()
+        })
+      ).then(arraysOfPackageNodes => {
+        resolve(new Set(utils.flattenArray(arraysOfPackageNodes)))
+      })
     })
-  )
+  }
 }
 
-const mapDependencyNodes = (name, semverRange = '*') => {
-  let dependencyNodes = []
-  rp(`http://registry.npmjs.org/${name}`)
-    .then(data => {
-      // TODO HERE VERSIONS
-      let versions = Object.toArray(JSON.parse(data).versions).map( data => {
-        console.log(data[1].dependencies)
-        return [data[0],data[1].dependencies]
-      }).filter( data => semver.satisfies(data[0],semverRange))
-      for (let depVersionAndMap of iterateDependencyChanges(versions)) {
-        dependencyNodes.push(DependencyNode(name, ...depVersionAndMap))
-      }
+const dependenciesToPackageNodes = (dependencyArray) => {
+  return () => {
+    return new Promise((resolve, reject) => {
+      Promise.all(
+        dependencyArray.map(dep => {
+          promisePackageNode(dep[0])
+        })
+      ).then(packageNodes => resolve(packageNodes))
     })
-  return dependencyNodes
+  }
 }
 
-const sortedDependenciesString = (packageJSON) => {
-  console.log(packageJSON)
-  return JSON.stringify(Object.toArray(packageJSON.dependencies).sort((x,y) => {x[0].localeCompare(y[0])}))
+const sortedDependenciesString = (dependencies) => {
+  return JSON.stringify([...dependencies].sort((x,y) => {x[0].localeCompare(y[0])}))
 }
 
 // TODO (by Pinto) error handling
 // TODO why is this a generator? Do we need the laziness? If there is no serious reason for it,
 // please make it return some standard data structure
-function* iterateDependencyChanges() {
-  let minVersionIndex = 0
-  let minVersionDependencies = sortedDependenciesString(versions[minVersionIndex])
-  for (let key of versions) {
-    let versionDependencies = sortedDependenciesString(versions[key])
+function* iterateDependencyChanges(versions) {
+  let minVersion = versions.keys().next().value
+  let minVersionDependencies = sortedDependenciesString(versions.values().next().value)
+  for (let entry of versions) {
+    let versionDependencies = sortedDependenciesString(entry[1])
     if ( minVersionDependencies !== versionDependencies ) {
-      yield [`>=${versions[minVersionIndex]} <${key}`, mapNewDependencies(versions[key])]
-      minVersionIndex = i
+      yield [`>=${minVersion} <${entry[0]}`, JSON.parse(minVersionDependencies)]
+      minVersion = entry[0]
       minVersionDependencies = versionDependencies
     }
   }
-  yield [`>=${versions[minVersionIndex]}`]
+  yield [`>=${minVersion}`, JSON.parse(minVersionDependencies)]
 }
 
 // TODO: use es6 exports
 module.exports = {
-  DependencyGraph: DependencyGraph
+  promiseDependencyGraph: DependencyGraph
 }
