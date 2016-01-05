@@ -1,5 +1,5 @@
 {
-  "name": "twa",
+  "name": "vpm",
   "version": "0.0.0",
   "description": "Package manager",
   "main": "src/index.js",
@@ -10,7 +10,7 @@
   "license": "ISC",
   "preferGlobal": true,
   "bin": {
-    "twa": "test.js"
+    "vpm": "test.js"
   },
   "devDependencies": {
     "babel-core": "^6.3.26",
