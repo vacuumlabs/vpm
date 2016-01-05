@@ -1,3 +1,8 @@
+//TODO get rid of this file.
+//1) I commited useful.js from wordy here - if you need anything which is not there, feel free to
+//add it there.
+//2) you are doing a lot of nasty and unnecessary side-effects on Object, Map, etc. Why not simply
+//export functions you need?
 Object.entries = function* entries(obj) {
    for (let key of Object.keys(obj)) {
      yield [key, obj[key]]

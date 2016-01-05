@@ -1,3 +1,8 @@
+// TODO: I renamed the file to wtf.js, because, I'm not sure how to call it. Please rename it to
+// something more appropriate.
+// TODO: please document all the non-trivial functions you wrote, at least provide types of input
+// args and very brief explanation, what the function is supposed to do.
+// TODO: Get rid of eslint errors.
 const rp = require('request-promise')
 const request = require('request')
 const semver = require('semver')

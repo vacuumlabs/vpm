@@ -1,8 +1,17 @@
+// TODO use imports instead of requires (throughout the project. index.js is the only place, where
+// requires are necessary). For example:
+// import * as utils from './utils.js'
+
 const utils = require('./utils.js')
 const semver = require('semver')
 const rp = require('request-promise')
 
 // factory functions
+// TODO: Let's not use es6 Maps, they suck.
+// if possible, stick with std js Objects. If not possibl (for example, you need your keys to be
+// something else than just strings, please use immutable.js . If there is really, really good
+// reason for using the es6 Maps, let's discuss it then.
+
 let packageMap = new Map()
 
 const DependencyGraph = (packageJSON) => {
@@ -75,7 +84,9 @@ const sortedDependenciesString = (packageJSON) => {
   return JSON.stringify(Object.toArray(packageJSON.dependencies).sort((x,y) => {x[0].localeCompare(y[0])}))
 }
 
-// TODO error handling
+// TODO (by Pinto) error handling
+// TODO why is this a generator? Do we need the laziness? If there is no serious reason for it,
+// please make it return some standard data structure
 function* iterateDependencyChanges() {
   let minVersionIndex = 0
   let minVersionDependencies = sortedDependenciesString(versions[minVersionIndex])
@@ -90,6 +101,7 @@ function* iterateDependencyChanges() {
   yield [`>=${versions[minVersionIndex]}`]
 }
 
+// TODO: use es6 exports
 module.exports = {
   DependencyGraph: DependencyGraph
 }
