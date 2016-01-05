@@ -52,10 +52,10 @@ function dummyError(e) {
 }
 
 function test() {
-  fs.access('./test_dir', fs.F_OK, err => {
-    if (err) fs.mkdirSync('./test_dir')
+  fs.access('./__test__', fs.F_OK, err => {
+    if (err) fs.mkdirSync('./__test__')
     rp('http://registry.npmjs.org/babel-core')
-      .then(data => installVersionInto(resolveHighestVersion('*', JSON.parse(data)),'./test_dir'))
+      .then(data => installVersionInto(resolveHighestVersion('*', JSON.parse(data)),'./__test__'))
       .catch(dummyError)
   })
 }
