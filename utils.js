@@ -1,5 +1,9 @@
 'use strict';
 
+const flattenArray = (array) => {
+  return [].concat.apply([], array)
+}
+
 const toArray = (obj) => {
   let arr = []
   if (!obj) return arr
@@ -28,18 +32,6 @@ const dummyError = (e) => {
 module.exports = {
   dummyError: dummyError,
   toArray: toArray,
-  toMap: toMap
-}
-
-
-//TODO delete
-
-Object.entries = function* entries(obj) {
-  for (let key of Object.keys(obj)) {
-    yield [key, obj[key]]
-  }
-}
-
-Map.fromObject = (obj) => {
-  return new Map(Object.entries(obj))
+  toMap: toMap,
+  flattenArray: flattenArray
 }
