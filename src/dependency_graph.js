@@ -1,4 +1,3 @@
-'use strict';
 const utils = require('./utils.js')
 const semver = require('semver')
 const rp = require('request-promise')
