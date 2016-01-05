@@ -115,6 +115,17 @@ const resolveDependencyNodes = (dependencyNodes) => {
   }
 }
 
+// TODO don't use Promise((resolve, reject){...}) construct if not necessary.
+// dependenciesToPackageNodes function may be written like this:
+//
+//const dependenciesToPackageNodes = (dependencyArray) =>
+//  () =>
+//    Promise.all(
+//      dependencyArray.map(dep => {
+//        // TODO return is missing here?
+//        promisePackageNode(dep[0])
+//      }))
+
 const dependenciesToPackageNodes = (dependencyArray) => {
   return () => {
     return new Promise((resolve, reject) => {
