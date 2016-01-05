@@ -3,93 +3,89 @@ const utils = require('./utils.js')
 const semver = require('semver')
 const rp = require('request-promise')
 
-// factory functions
-let packageMap = new Map()
+// TODO - is this an OK practice ? (if I want a variable exposed to all top-level functions and not to worry about passing it around)
+let packageMap
 
-const DependencyGraph = (packageJSON) => {
-  console.log(packageJSON)
-  let state = {
-    packageMap,
-    requiredPackages: mapNewDependencies(packageJSON)
+// factory functions
+
+const PackageMap = _ => {
+  let packages = new Map()
+  const append = dependencyMap => {
+    for (let entry of dependencyMap) {
+      if (!packages.has(entry[0])) {
+        // TODO we could cut off some of the possible dependencies based on version range
+        // from entry[1], ommited for now in favor of simplicity
+        packages.set(entry[0], PackageNode(entry[0]))
+      }
+    }
+    return packages
   }
-  return Object.assign(
-    {},
-    state
-  )
+  return {
+    packages,
+    append
+  }
 }
 
-const PackageNode = (name, semverRange = '*') => {
-  let state = {
-    name,
-    dependencyNodes: mapDependencyNodes(name, semverRange),
-    satisfied: false
+const DependencyGraph = (packageJSON) => {
+  return {
+    packageMap: packageMap,
+    requiredPackages: packageMap.append(utils.toMap(packageJSON.dependencies))
   }
-  console.log(`PACKAGE ${name}`)
-  return Object.assign(
-    {},
-    state
-  )
+}
+
+// from dependencies perspective, each package node is a disjunction
+// (between dependency nodes) of conjunctions (packages listed in each dep. node)
+const PackageNode = (name) => {
+  let dependencyNodes = []
+  rp(`http://registry.npmjs.org/${name}`)
+    .then(data => {
+      let versions = utils.toMap(
+        utils.toArray(JSON.parse(data).versions)
+          .map( data => [data[0],utils.toMap(data[1].dependencies)])
+          //.filter( data => semver.satisfies(data[0],semverRange))
+      )
+      for (let depVersionAndMap of iterateDependencyChanges(versions)) {
+        dependencyNodes.push(DependencyNode(name, ...depVersionAndMap))
+        //state.versions.push(depVersionAndMap[0])
+      }
+    })
+  return {
+    name,
+    dependencyNodes
+  }
 }
 
 const DependencyNode = (name, semverRange, dependencies) => {
-  let state = {
+  packageMap.append(dependencies)
+  return {
     name,
     semverRange,
     dependencies
   }
-  console.log(`dependency ${name}`)
-  return Object.assign(
-    {},
-    state
-  )
 }
 
 // functions
 
-const mapNewDependencies = (packageJSON) => {
-  return new Map(
-    Object.toArray(packageJSON.dependencies).map((i) => {
-      if (!packageMap.has(i[0])) packageMap.set(i[0],PackageNode(i[0],i[1]))
-      return [i[0], packageMap[i[0]]]
-    })
-  )
-}
-
-const mapDependencyNodes = (name, semverRange = '*') => {
-  let dependencyNodes = []
-  rp(`http://registry.npmjs.org/${name}`)
-    .then(data => {
-      // TODO HERE VERSIONS
-      let versions = Object.toArray(JSON.parse(data).versions).map( data => {
-        console.log(data[1].dependencies)
-        return [data[0],data[1].dependencies]
-      }).filter( data => semver.satisfies(data[0],semverRange))
-      for (let depVersionAndMap of iterateDependencyChanges(versions)) {
-        dependencyNodes.push(DependencyNode(name, ...depVersionAndMap))
-      }
-    })
-  return dependencyNodes
-}
-
-const sortedDependenciesString = (packageJSON) => {
-  console.log(packageJSON)
-  return JSON.stringify(Object.toArray(packageJSON.dependencies).sort((x,y) => {x[0].localeCompare(y[0])}))
+const sortedDependenciesString = (dependencies) => {
+  return JSON.stringify([...dependencies].sort((x,y) => {x[0].localeCompare(y[0])}))
 }
 
 // TODO error handling
-function* iterateDependencyChanges() {
-  let minVersionIndex = 0
-  let minVersionDependencies = sortedDependenciesString(versions[minVersionIndex])
-  for (let key of versions) {
-    let versionDependencies = sortedDependenciesString(versions[key])
+function* iterateDependencyChanges(versions) {
+  let minVersion = versions.keys().next().value
+  let minVersionDependencies = sortedDependenciesString(versions.values().next().value)
+  for (let entry of versions) {
+    let versionDependencies = sortedDependenciesString(entry[1])
     if ( minVersionDependencies !== versionDependencies ) {
-      yield [`>=${versions[minVersionIndex]} <${key}`, mapNewDependencies(versions[key])]
-      minVersionIndex = i
+      yield [`>=${minVersion} <${entry[0]}`, JSON.parse(minVersionDependencies)]
+      minVersion = entry[0]
       minVersionDependencies = versionDependencies
     }
   }
-  yield [`>=${versions[minVersionIndex]}`]
+  yield [`>=${minVersion}`, JSON.parse(minVersionDependencies)]
 }
+
+packageMap = PackageMap()
 
 module.exports = {
   DependencyGraph: DependencyGraph

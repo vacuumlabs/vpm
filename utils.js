@@ -1,24 +1,24 @@
 'use strict';
 
-Object.entries = function* entries(obj) {
-   for (let key of Object.keys(obj)) {
-     yield [key, obj[key]]
-   }
-}
-
-Object.toArray = (obj) => {
+const toArray = (obj) => {
   let arr = []
+  if (!obj) return arr
+  if (Array.isArray(obj)) return obj
+  // TODO check for maps?!
+  // let it throw error if non-falsy non-object is passed in
   for (let key of Object.keys(obj)) {
      arr.push([key, obj[key]])
   }
   return arr
 }
 
-Map.fromObject = (obj) => {
-  return new Map(Object.entries(obj))
+const toMap = (obj) => {
+  // TODO check for maps?!
+  if (Array.isArray(obj)) return new Map(obj)
+  return new Map(toArray(obj))
 }
 
-function dummyError(e) {
+const dummyError = (e) => {
   if (e) 
     console.log(e)
   else
@@ -26,5 +26,20 @@ function dummyError(e) {
 }
 
 module.exports = {
-  dummyError: dummyError
+  dummyError: dummyError,
+  toArray: toArray,
+  toMap: toMap
+}
+
+
+//TODO delete
+
+Object.entries = function* entries(obj) {
+  for (let key of Object.keys(obj)) {
+    yield [key, obj[key]]
+  }
+}
+
+Map.fromObject = (obj) => {
+  return new Map(Object.entries(obj))
 }

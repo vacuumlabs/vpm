@@ -60,7 +60,8 @@ function testmoar() {
   console.log('This is the other test')
   rp('http://registry.npmjs.org/babel-core')
       .then(data => {
-        dg.DependencyGraph(resolveHighestVersion('*', JSON.parse(data)))
+        let graph = dg.DependencyGraph(resolveHighestVersion('*', JSON.parse(data)))
+        console.log(graph.packages)
       })
 }
 
