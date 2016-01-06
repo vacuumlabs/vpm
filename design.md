@@ -1,64 +1,96 @@
-### Concepts
-- package = tarball
-- packageName = for example 'immutable'
-- packageVersion = '1.2.3' / some semver object?
-- packageId = String unique wrp packageName and packageVersion, for example 'immutable@1_2_3'
+## Concepts
+- package = package name such as 'immutable'
+- version = '1.2.3' 
+- version range = version interval as semver understands it
 
 TODO: What to do with installations from git? Does this change anything?
 
-### What we want
-all dependencies are installed in flat node_modules (nm), each package is stored in packageId directory.
-If package1 depends on package2, vpm creates `nm/package1Id/nm/package2Name` symlink pointing to
-`nm/package2Id`.
+## Directory structure
+all dependencies are installed in flat node_modules/.stuff/package@version structure. Vpm then use
+symlinks to wire this up.
 
-### Building blocks worth implementing
+#### Sample structure of `node_modules` directory
 
-I wrote this, because I'm lost in the current architecture. There are already so many functions and yet I
-have problem to find the things I'd expect to be there!
+    nm/.stuff/package1@version
+             /package2@version
+       package1 -> .stuff/package1@version
+       package2 -> .sutff/package2@version
 
-`fetch(packageName, version, cacheLocation)`  
+#### Sample structure of `.stuff` directory
+
+    ./stuff/package1@version/nm/package3 -> ../../../package3@version
+                               /package4 -> ../../../package4@version
+
+           /package2@version/nm/...
+
+## Some important functions
+
+
+#### Registry 
+
+registry works as a cache for information obtained from `https://registry.npmjs.org/packagename`.
+It's structure is such as:
+
+    registry: {
+      package: {
+        version: {
+          tarball: url_string,
+          dependencies: {
+            name: version_string
+          }
+        }
+      }
+    }
+
+#### Solution
+
+represents what should be installed and how the things should be linked. Information in the solution
+is approx. the same as contained in npm-shrinkwrap.
+
+    solution: {(package, version) | 'root' : [(package1, version), (package2, version), ...]}
+
+TODO: how to encode the (package, version) tuple?
+
+#### Resolve
+resolve(dedepndencies, registry): solution
+
+Finds the solution. May use fetchPackageInfo to get the information necessary. Uses `registry` as a
+cache for this information (the `registry` object is mutated as `resolve` advances.
+
+#### fetchPackageInfo(package)
+downloads info from `registry.npmjs.org`
+
+
+#### fetch(package, version, cache)
 downloads the package (tarball); uses the cache.
 
-`installOne(tarball, packageId)`
+#### installOne(tarball, packageId)
 installs the dependency to the given location. First ungzip & untar it somewhere and then move it to
-the desired location so the process is as atomic as possible
+the desired location so the process is as atomic as possible. TODO: use npm for this?
 
-`link(id1, id2)`
-creates symlink from package id1 to package id2 such that `nm/package1_id/nm/package2_name`
-points to package i2
+#### link(package1, version1, package2, version2)
+Links package1 and package2: 
 
-`getDependencies(packageName, version)`
-returns list of [packageName, semverRange] elements
+`nm/.stuff/package1@version1/nm/package2` points to `nm/.stuff/package2@version2`. 
 
-`install(packageName, version)`
-described later
+If `package1 = 'root'`, creates symlink
 
-`registry` - data structure that keep track of what is already installed.
+`nm/package2` which points to `nm/.stuff/package2@version2`
 
-### CSP
+## CSP
 - each function that needs to do some asynchronous stuff returns CSP channel with the returning
   value. If the function is called for its (async) side-effects, function returns CSP channel and
   pushes null to it, when the side-effetcs are done.
 
-### Algorithm overview
+## Resolve algorithm overview
+For now on, keep greedily installing anything that is necessary. Don't do installs that are not
+necessary (i.e. dependency is already satisfied)
 
-This describes the `install` function - entrypoint of the algorithm.
-
-    function install (packageName, version) {
-      fetch package at the given version and installOne it
-      put the information about the package to the registry. This may be important in case of cyclic dependencies
-      resolve package dependencies
-      for each dependency {
-          is dependency in registry (i.e. in the correct version) and does the versions match? {
-              link packages
-          } else {
-              download, link package with the dependency, recursively install depndendencies of
-              dependency
-          }
-      }
-    }
+## Testing
+- test `resolve` on synthetic data (mock registry such that `resolve` won't call 
+- test 'the whole thing' on real packages
        
-### Backtracking Peer dependencies
+## Backtracking Peer dependencies
 TODO
 
 
