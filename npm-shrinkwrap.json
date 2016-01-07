@@ -1053,6 +1053,11 @@
       "from": "hosted-git-info@>=2.1.4 <3.0.0",
       "resolved": "https://registry.npmjs.org/hosted-git-info/-/hosted-git-info-2.1.4.tgz"
     },
+    "http": {
+      "version": "0.0.0",
+      "from": "http@latest",
+      "resolved": "https://registry.npmjs.org/http/-/http-0.0.0.tgz"
+    },
     "http-signature": {
       "version": "1.1.0",
       "from": "http-signature@>=1.1.0 <1.2.0",
@@ -1197,6 +1202,11 @@
       "version": "1.0.2",
       "from": "jodid25519@>=1.0.0 <2.0.0",
       "resolved": "https://registry.npmjs.org/jodid25519/-/jodid25519-1.0.2.tgz"
+    },
+    "js-csp": {
+      "version": "0.5.0",
+      "from": "js-csp@latest",
+      "resolved": "https://registry.npmjs.org/js-csp/-/js-csp-0.5.0.tgz"
     },
     "js-tokens": {
       "version": "1.0.2",
