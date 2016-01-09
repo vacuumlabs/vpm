@@ -10,7 +10,7 @@
   "license": "ISC",
   "preferGlobal": true,
   "bin": {
-    "vpm": "test.js"
+    "csp_example": "src/index.js"
   },
   "devDependencies": {
     "babel-eslint": "^5.0.0-beta6",
