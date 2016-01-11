@@ -51,14 +51,14 @@ function* getter() {
 
 const packageList = ['js-csp', 'immutable', 'eslint']//, 'babel-core', 'js-csp', 'eslint', 'gulp', 'mocha']
 
-// export function that spawns channel that yields registry
-// TODO is this a good pattern ? or should we just export generator function and spawn it when needed ?
-export const registryChannel = () => csp.go(function*() {
+// returns a channel that ultimately returns registry
+export const registryChannel = (packageList) => csp.go(function*() {
   csp.spawn(getter())
   return yield csp.take(csp.spawn(constructRegistry(packageList)))
 })
 
 // test
-
+/*
 let ch = registryChannel()
 csp.takeAsync(ch, (r) => console.log(r))
+*/

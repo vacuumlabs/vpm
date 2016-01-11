@@ -47,9 +47,22 @@ export function getPackageInfo(pkg) {
   return cspHttpGet(options, map((str) => JSON.parse(str)))
 }
 
+export
+
 export function cspAll(channels) {
   return csp.go(function*() {
     let res = yield csp.operations.into([], csp.operations.merge(channels))
     return res
   })
+}
+
+// returns a channel that blocks until function callback is called
+// the channel yields either an error or csp.CLOSED
+export function cspy(function, ...args) {
+  let ch = csp.chan()
+  function(...args, (err) => {
+    if (err) cps.putAsync(ch, err)
+    ch.close()
+  })
+  return ch
 }
