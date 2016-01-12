@@ -7,7 +7,7 @@ import csp from 'js-csp'
 //const transduceValue = (transducer) => t.map(kv => [kv[0], t.seq(kv[1], transducer)])
 
 // limit to help prevent ECONNREFUSED
-http.globalAgent.maxSockets = 5
+http.globalAgent.maxSockets = 20
 
 csp.peek = function(ch) {
   return csp.go(function*() {
@@ -18,6 +18,11 @@ csp.peek = function(ch) {
 }
 
 // generic GET which returns csp-channel (wiht optional transducer)
+// TODO: rewrite this in a more simple form:
+//   while (not success) {
+//     yield try-http-request
+//   }
+//   return result
 export function cspHttpGet(options) {
   let reschan = csp.chan(1)
 
@@ -29,7 +34,7 @@ export function cspHttpGet(options) {
     })
     //the whole response has been recieved, so we just print it out here
     response.on('end', function() {
-      csp.putAsync(reschan, JSON.parse(str.join('')))
+      csp.putAsync(reschan, str.join(''))
       reschan.close()
       return reschan
     })
@@ -53,12 +58,14 @@ export function cspHttpGet(options) {
 }
 
 export function _getPackageInfo(pkg) {
-  let options = {
-    host: 'registry.npmjs.org',
-    path: `/${pkg}`
-  }
-  //return cspHttpGet(options, map((str) => JSON.parse(str)))
-  return cspHttpGet(options)
+  return csp.go(function*() {
+    let options = {
+      host: 'registry.npmjs.org',
+      path: `/${pkg}`
+    }
+    //return cspHttpGet(options, map((str) => JSON.parse(str)))
+    return JSON.parse(yield csp.take(cspHttpGet(options)))
+  })
 }
 
 export function getPackageInfo(registry, nrConnections) {
@@ -77,9 +84,9 @@ export function getPackageInfo(registry, nrConnections) {
   }
 
   // second arg is just for debugging purposes
+  // getter
   return (pkg, main) => {
     return csp.go(function*() {
-      //console.log('### enter', pkg, main)
       if (pkg in registry) {
         if ('package' in registry[pkg]) {
           return registry[pkg].package
@@ -92,13 +99,10 @@ export function getPackageInfo(registry, nrConnections) {
       yield csp.put(ch, [pkg, resChan])
       let res = yield csp.peek(resChan)
       registry[pkg].package = res
-      //console.log('### return', pkg, main)
       return res
     })
   }
 }
-
-
 
 export function cspAll(channels) {
   return csp.go(function*() {
