@@ -1,27 +1,35 @@
 import http from 'http'
 import csp from 'js-csp'
-import {map} from 'transducers.js'
-import t from 'transducers.js'
+//import {map} from 'transducers.js'
+//import t from 'transducers.js'
 
-const filterKeysForRegistry = t.filter(kv => /^tarball$|^dependencies$/.test(kv[0]))
-const transduceValue = (transducer) => t.map(kv => [kv[0], t.seq(kv[1], transducer)])
+//const filterKeysForRegistry = t.filter(kv => /^tarball$|^dependencies$/.test(kv[0]))
+//const transduceValue = (transducer) => t.map(kv => [kv[0], t.seq(kv[1], transducer)])
 
 // limit to help prevent ECONNREFUSED
 http.globalAgent.maxSockets = 5
 
+csp.peek = function(ch) {
+  return csp.go(function*() {
+    let res = yield csp.take(ch)
+    yield csp.put(ch, res)
+    return res
+  })
+}
+
 // generic GET which returns csp-channel (wiht optional transducer)
-export function cspHttpGet(options, transducer = undefined) {
-  let reschan = csp.chan(1, transducer)
+export function cspHttpGet(options) {
+  let reschan = csp.chan(1)
 
   function processResponse(response) {
-    let str = ''
+    let str = []
     //another chunk of data has been recieved, so append it to `str`
     response.on('data', function(chunk) {
-      str += chunk
+      str.push(chunk)
     })
     //the whole response has been recieved, so we just print it out here
     response.on('end', function() {
-      csp.putAsync(reschan, str)
+      csp.putAsync(reschan, JSON.parse(str.join('')))
       reschan.close()
       return reschan
     })
@@ -31,6 +39,7 @@ export function cspHttpGet(options, transducer = undefined) {
   // otherwise print and ignore (TODO better error handling)
   function requestAndHandleErrors(options, callback) {
     http.request(options, callback).on('error', function(err) {
+      console.log('http error')
       console.log(err)
       if (err.code === 'ECONNREFUSED') {
         console.log('Connection to registry refused, re-trying (Ctr+C to stop...)')
@@ -48,7 +57,8 @@ export function _getPackageInfo(pkg) {
     host: 'registry.npmjs.org',
     path: `/${pkg}`
   }
-  return cspHttpGet(options, map((str) => JSON.parse(str)))
+  //return cspHttpGet(options, map((str) => JSON.parse(str)))
+  return cspHttpGet(options)
 }
 
 export function getPackageInfo(registry, nrConnections) {
@@ -57,7 +67,8 @@ export function getPackageInfo(registry, nrConnections) {
   function* spawnWorker() {
     while (true) {
       let [pkg, resChan] = yield csp.take(ch)
-      csp.put(resChan, yield csp.take(_getPackageInfo(pkg)))
+      let res = yield csp.take(_getPackageInfo(pkg))
+      yield csp.put(resChan, res)
     }
   }
 
@@ -65,27 +76,23 @@ export function getPackageInfo(registry, nrConnections) {
     csp.go(spawnWorker)
   }
 
-  return (pkg) => {
+  // second arg is just for debugging purposes
+  return (pkg, main) => {
     return csp.go(function*() {
+      //console.log('### enter', pkg, main)
       if (pkg in registry) {
         if ('package' in registry[pkg]) {
           return registry[pkg].package
         } else {
-          return yield csp.take(registry[pkg].channel)
+          return yield csp.peek(registry[pkg].channel)
         }
       }
-      let resChan = csp.chan()
+      let resChan = csp.chan(1)
       registry[pkg] = {channel: resChan}
       yield csp.put(ch, [pkg, resChan])
-      console.log('tututu')
-      let res = yield csp.take(resChan)
-      console.log('ressss', res)
-      if (res.versions === undefined) { // TODO handle this! (unpublished packages)
-        registry[pkg].package = res
-        return null
-      }
-      res = Object.assign({}, t.seq(res['versions'], transduceValue(filterKeysForRegistry)))
+      let res = yield csp.peek(resChan)
       registry[pkg].package = res
+      //console.log('### return', pkg, main)
       return res
     })
   }

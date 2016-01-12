@@ -1,13 +1,11 @@
 // everything related to building up local registry
 import csp from 'js-csp'
-import t from 'transducers.js'
 import {getPackageInfo} from './csp_utils.js'
 import Queue from 'fastqueue'
 
 const queue = new Queue
-const extractKey = t.map(kv => kv[0])
 const registry = {}
-const getter = getPackageInfo(registry, 5)
+const getter = getPackageInfo(registry, 10)
 
 function getAllDependencies(pkg) {
   return csp.go(function*() {
@@ -18,24 +16,38 @@ function getAllDependencies(pkg) {
       }
       let pkg = queue.shift()
       console.log('start', pkg)
-      let pkgInfo = yield csp.take(getter(pkg))
-      console.log('got', pkgInfo)
+      let pkgInfo = yield csp.take(getter(pkg, true))
+      console.log('end', pkg)
 
-      for (let ver in pkgInfo) {
-        if (pkgInfo[ver]['dependencies'] === undefined) continue
-        t.toArray(pkgInfo[ver]['dependencies'], extractKey).forEach((dependency) => {
-          if (registry[dependency] !== undefined) {
-            getter(dependency)
-            queue.push(dependency)
+      let tbd = {}
+      if ('versions' in pkgInfo) {
+        for (let ver in pkgInfo.versions) {
+          let verData = pkgInfo.versions[ver]
+          if ('dependencies' in verData) {
+            for (let dep in verData.dependencies) {
+              tbd[dep] = true
+            }
           }
-        })
+        }
+      }
+      for (let dep in tbd) {
+        if (registry[dep] === undefined) {
+          queue.push(dep)
+          getter(dep, false)
+        }
       }
     }
     return null
   })
 }
 
-getAllDependencies('eslint')
+csp.go(function*() {
+  yield csp.take(getAllDependencies('eslint'))
+})
+
+//csp.go(function*() {
+//  yield csp.timeout(10000)
+//})
 
 //// TODO this is SLOW (really slow - dependencies seem to change a lot in big packages), should only get pkgInfo on demand
 //// TODO rewrite to allow multiple getter routines sometime in the future (for now, a single goroutine making connections
