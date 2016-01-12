@@ -1,6 +1,10 @@
 import http from 'http'
 import csp from 'js-csp'
 import {map} from 'transducers.js'
+import t from 'transducers.js'
+
+const filterKeysForRegistry = t.filter(kv => /^tarball$|^dependencies$/.test(kv[0]))
+const transduceValue = (transducer) => t.map(kv => [kv[0], t.seq(kv[1], transducer)])
 
 // limit to help prevent ECONNREFUSED
 http.globalAgent.maxSockets = 5
@@ -39,7 +43,7 @@ export function cspHttpGet(options, transducer = undefined) {
   return reschan
 }
 
-export function getPackageInfo(pkg) {
+export function _getPackageInfo(pkg) {
   let options = {
     host: 'registry.npmjs.org',
     path: `/${pkg}`
@@ -47,7 +51,47 @@ export function getPackageInfo(pkg) {
   return cspHttpGet(options, map((str) => JSON.parse(str)))
 }
 
-export
+export function getPackageInfo(registry, nrConnections) {
+  let ch = csp.chan()
+
+  function* spawnWorker() {
+    while (true) {
+      let [pkg, resChan] = yield csp.take(ch)
+      csp.put(resChan, yield csp.take(_getPackageInfo(pkg)))
+    }
+  }
+
+  for (let i = 0; i < nrConnections; i++) {
+    csp.go(spawnWorker)
+  }
+
+  return (pkg) => {
+    return csp.go(function*() {
+      if (pkg in registry) {
+        if ('package' in registry[pkg]) {
+          return registry[pkg].package
+        } else {
+          return yield csp.take(registry[pkg].channel)
+        }
+      }
+      let resChan = csp.chan()
+      registry[pkg] = {channel: resChan}
+      yield csp.put(ch, [pkg, resChan])
+      console.log('tututu')
+      let res = yield csp.take(resChan)
+      console.log('ressss', res)
+      if (res.versions === undefined) { // TODO handle this! (unpublished packages)
+        registry[pkg].package = res
+        return null
+      }
+      res = Object.assign({}, t.seq(res['versions'], transduceValue(filterKeysForRegistry)))
+      registry[pkg].package = res
+      return res
+    })
+  }
+}
+
+
 
 export function cspAll(channels) {
   return csp.go(function*() {
@@ -58,10 +102,10 @@ export function cspAll(channels) {
 
 // returns a channel that blocks until function callback is called
 // the channel yields either an error or csp.CLOSED
-export function cspy(function, ...args) {
+export function cspy(fn, ...args) {
   let ch = csp.chan()
-  function(...args, (err) => {
-    if (err) cps.putAsync(ch, err)
+  fn(...args, (err) => {
+    if (err) csp.putAsync(ch, err)
     ch.close()
   })
   return ch
