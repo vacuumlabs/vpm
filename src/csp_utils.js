@@ -1,14 +1,12 @@
 import http from 'http'
 import csp from 'js-csp'
-//import {map} from 'transducers.js'
-//import t from 'transducers.js'
 
-//const filterKeysForRegistry = t.filter(kv => /^tarball$|^dependencies$/.test(kv[0]))
-//const transduceValue = (transducer) => t.map(kv => [kv[0], t.seq(kv[1], transducer)])
-
+// TODO: is this needed anymore?
 // limit to help prevent ECONNREFUSED
 http.globalAgent.maxSockets = 20
 
+
+// patch csp with a peek method: obtain a value from channel without removing it
 csp.peek = function(ch) {
   return csp.go(function*() {
     let res = yield csp.take(ch)
@@ -17,7 +15,7 @@ csp.peek = function(ch) {
   })
 }
 
-// generic GET which returns csp-channel (wiht optional transducer)
+// generic GET which returns csp-channel
 // TODO: rewrite this in a more simple form:
 //   while (not success) {
 //     yield try-http-request
@@ -41,7 +39,7 @@ export function cspHttpGet(options) {
   }
 
   // for now just redo the request on connection refuse,
-  // otherwise print and ignore (TODO better error handling)
+  // otherwise print and ignore
   function requestAndHandleErrors(options, callback) {
     http.request(options, callback).on('error', function(err) {
       console.log('http error')
@@ -57,16 +55,20 @@ export function cspHttpGet(options) {
   return reschan
 }
 
+// returns channel containg info about single package
 export function _getPackageInfo(pkg) {
   return csp.go(function*() {
     let options = {
       host: 'registry.npmjs.org',
       path: `/${pkg}`
     }
-    //return cspHttpGet(options, map((str) => JSON.parse(str)))
     return JSON.parse(yield csp.take(cspHttpGet(options)))
   })
 }
+
+/** returns `pkgInfoGetter`, `pkgInfoGetter(pkg)` retrieves info about a single pkg, internally uses
+ * `nrConnections` number of workers and will use `registry` as its cache
+**/
 
 export function getPackageInfo(registry, nrConnections) {
   let ch = csp.chan()
@@ -84,7 +86,7 @@ export function getPackageInfo(registry, nrConnections) {
   }
 
   // second arg is just for debugging purposes
-  // getter
+  // pkfInfoGetter
   return (pkg, main) => {
     return csp.go(function*() {
       if (pkg in registry) {
@@ -94,6 +96,7 @@ export function getPackageInfo(registry, nrConnections) {
           return yield csp.peek(registry[pkg].channel)
         }
       }
+      // resChan has to have buffer of a size 1 to be peek-able
       let resChan = csp.chan(1)
       registry[pkg] = {channel: resChan}
       yield csp.put(ch, [pkg, resChan])
