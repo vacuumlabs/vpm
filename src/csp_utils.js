@@ -91,18 +91,14 @@ export function getPackageInfo(registry, nrConnections) {
     return csp.go(function*() {
       if (pkg in registry) {
         if ('package' in registry[pkg]) {
-          return registry[pkg].package
-        } else {
-          return yield csp.peek(registry[pkg].channel)
+          return yield csp.peek(registry[pkg])
         }
       }
       // resChan has to have buffer of a size 1 to be peek-able
       let resChan = csp.chan(1)
-      registry[pkg] = {channel: resChan}
+      registry[pkg] = resChan
       yield csp.put(ch, [pkg, resChan])
-      let res = yield csp.peek(resChan)
-      registry[pkg].package = res
-      return res
+      return yield csp.peek(resChan)
     })
   }
 }
