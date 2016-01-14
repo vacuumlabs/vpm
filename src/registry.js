@@ -4,7 +4,7 @@ import Queue from 'fastqueue'
 
 const queue = new Queue
 const registry = {}
-const getter = getPackageInfo(registry, 10)
+const getter = getPackageInfo(registry, 20)
 
 function getAllDependencies(pkg) {
   return csp.go(function*() {

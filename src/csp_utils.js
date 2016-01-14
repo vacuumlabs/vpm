@@ -3,7 +3,7 @@ import csp from 'js-csp'
 
 // TODO: is this needed anymore?
 // limit to help prevent ECONNREFUSED
-http.globalAgent.maxSockets = 20
+// http.globalAgent.maxSockets = 20
 
 
 // patch csp with a peek method: obtain a value from channel without removing it
