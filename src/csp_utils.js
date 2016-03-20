@@ -85,9 +85,8 @@ export function getPackageInfo(registry, nrConnections) {
     csp.go(spawnWorker)
   }
 
-  // second arg is just for debugging purposes
   // pkfInfoGetter
-  return (pkg, main) => {
+  return (pkg) => {
     return csp.go(function*() {
       if (pkg in registry) {
         if ('package' in registry[pkg]) {

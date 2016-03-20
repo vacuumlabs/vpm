@@ -4,9 +4,12 @@ import t from 'transducers.js'
 import cspu from './csp_utils.js'
 import semver from 'semver'
 import Queue from 'fastqueue'
+import {getPackageInfo} from './csp_utils.js'
 
 // transducers
 const extractKeys = t.map(kv => kv[0])
+
+const registry = {}
 
 function maxVersion(pkg) {
   return semver.maxSatisfying(t.toArray(registry[pkg[0]], extractKeys), pkg[1])
@@ -17,8 +20,13 @@ function maxVersionSolutionKey(pkg) {
   return `${pkg[0]}@${maxVersion(pkg)}`
 }
 
+
+export function getSolution(dependencies) {
+
+}
+
 // the temporal dumb resolver, keeps on installing highest possible versions until it satisfies all dependencies
-export function getSolution(dependencies,registry) {
+export function __getSolution(dependencies,registry) {
   let solution = {}
   const queue = new Queue
   solution['root']= t.toArray(coll, t.map(e => maxVersionSolutionKey(e)))
@@ -29,7 +37,7 @@ export function getSolution(dependencies,registry) {
     if (solutionKey in solution) continue
     let version = maxVersion(pkg)
     let deps = []
-    for dep in registry[pkg[0]][version].dependencies {
+    for (dep in registry[pkg[0]][version].dependencies) {
       let depKey = maxVersionSolutionKey(dep)
       deps.push(depKey)
       queue.push(depKey)

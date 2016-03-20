@@ -6,7 +6,7 @@ import csp from 'js-csp'
 import t from 'transducers.js'
 import cspu from './csp_utils.js'
 import {rimraf} from 'rimraf'
-import {registryChannel} from './registry.js'
+import {getPackageInfo} from './registry.js'
 import {getSolution} from './solution.js'
 
 // transducers
@@ -19,9 +19,13 @@ let registry = {}
 let solution = {}
 
 export function install(dependencies) {
-  return yield csp.go(function*(){
+
+}
+
+export function __install(dependencies) {
+  return csp.go(function*(){
     console.log('Creating registry')
-    registry = yield registryChannel(t.toArray(dependencies, extractKeys))
+    //registry = yield registryChannel(t.toArray(dependencies, extractKeys))
     console.log('Constructing solution')
     solution = getSolution(dependencies,registry)
     console.log('Resolving solution')
@@ -33,7 +37,7 @@ export function install(dependencies) {
 }
 
 function fetchPackages() {
-  return yield csp.go(function*(){
+  return csp.go(function*(){
     // run install on every key from solution, return array of errors yielded from channels
     let errors = seq(yield csp.take(cspAll(t.toArray(solution, installKeys))), filterErrors)
     //TODO nicer error handling
@@ -45,7 +49,7 @@ function fetchPackages() {
   })
 }
 
-function install(solutionKey) {
+function _install(solutionKey) {
   return yield csp.go(function*(){
     let pkgVerTuple = solutionKey.split(1)
     cspu.cspy(
