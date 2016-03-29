@@ -5,6 +5,7 @@ import {flattenShallow} from './useful.js'
 import semver from 'semver'
 import Queue from 'fastqueue'
 import t from 'transducers.js'
+import {getIn} from 'stateUtils'
 
 let {map,filter} = t
 
@@ -28,7 +29,6 @@ const nodeRegistry = {}
     }
   }
 }
-
 */
 
 //factories should be kept clear of csp, if asynchronicity is required in object creation they are wrapped in createX function
@@ -98,8 +98,8 @@ function createNode(name, semver) {
 //factory
 function node(pkg, semver) {
 
-  // get concrete satisfying version from semver - highest possible
-  const version = filter(pkgJson.versions.keys().sort(semver.rcompare), v => semver.satisfies(v, semver))[0]
+  // root package verson || get concrete satisfying version from semver - highest possible
+  const version = pkg.version || filter(pkgJson.versions.keys().sort(semver.rcompare), v => semver.satisfies(v, semver))[0]
   if (version === undefined) throw new Error('No version satisfies requirements') // TODO return false and handle
 
   return {
@@ -111,12 +111,25 @@ function node(pkg, semver) {
 
     resolveDependencies: () => {
       return csp.go(function*() {
-        const versionPackage = pkgJson.versions[version]
-        const dependencyNodes = cspAll(map(versionPackage.dependencies.keys, pkgName => resolveNRV(pkgName, versionPackage.dependencies[pkgName])))
+        return yield this.resolveCommon(pkgJson.versions[version].dependencies)
+      })
+    }
+
+    resolveBasePackage: () => {
+      return csp.go(function*() {
+        // TODO merge deps/dev-deps/peer-deps
+        return yield this.resolveCommon(pkgJson.dependencies)
+      })
+    }
+
+    resolveCommon: (deps) => {
+      return csp.go(function*() {
+      // TODO getIn deps
+        const dependencyNodes = cspAll(map(deps.keys, pkgName => resolveNRV(pkgName, deps[pkgName])))
         for (let dn of dependencyNodes) {
-          dependencies[dn.name] = {
+          this.dependencies[dn.name] = {
             name: dn.name,
-            semver: versionPackage.dependencies[dn.name],
+            semver: deps[dn.name],
             resolvedIn: dn
           }
         }
