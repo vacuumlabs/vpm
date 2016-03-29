@@ -41,6 +41,7 @@
     "tar-fs": "^1.9.0",
     "transducers.js": "~0.3.2",
     "tarball-extract": "0.0.3",
-    "rimraf": "^2.5.0"
+    "rimraf": "^2.5.0",
+    "lodash": "https://registry.npmjs.org/lodash/-/lodash-3.10.1.tgz"
   }
 }

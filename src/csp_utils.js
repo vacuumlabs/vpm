@@ -1,5 +1,6 @@
 import http from 'http'
 import csp from 'js-csp'
+import {isEqual} from 'lodash'
 
 // TODO: is this needed anymore?
 // limit to help prevent ECONNREFUSED
@@ -57,12 +58,32 @@ export function cspHttpGet(options) {
 
 // returns channel containg info about single package
 export function _getPackageInfo(pkg) {
+  let versionGroups = undefined
+  let directPubs = undefined
+  const packageFunctions = {
+    getVersionGroups = () => {
+      if (versionGroups !== undefined) return versionGroups
+      //TODO CONTINUE HERE!
+      return versionGroups
+    },
+    getDirectPubs = () => {
+      if (directPubs !== undefined) return directPubs
+      // TODO
+      return directPubs
+    },
+    getVerionUrl = (verion) => {
+      // TODO
+    }
+  }
   return csp.go(function*() {
     let options = {
       host: 'registry.npmjs.org',
       path: `/${pkg}`
     }
-    return JSON.parse(yield csp.take(cspHttpGet(options)))
+    return Object.assign(
+      Object.create(packageFunctions),
+      JSON.parse(yield csp.take(cspHttpGet(options)))
+    )
   })
 }
 

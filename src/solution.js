@@ -22,7 +22,24 @@ function maxVersionSolutionKey(pkg) {
 
 
 export function getSolution(dependencies) {
-
+  let solution = {}
+  const queue = new Queue
+  solution['root']= t.toArray(coll, t.map(e => maxVersionSolutionKey(e)))
+  solution['root'].forEach( e => queue.push(e))
+  while (queue.length > 0) {
+    let pkg = queue.shift()
+    let solutionKey = maxVersionSolutionKey(pkg)
+    if (solutionKey in solution) continue
+    let version = maxVersion(pkg)
+    let deps = []
+    for (dep in registry[pkg[0]][version].dependencies) {
+      let depKey = maxVersionSolutionKey(dep)
+      deps.push(depKey)
+      queue.push(depKey)
+    }
+    solution[solutionKey] = deps
+  }
+  return solution
 }
 
 // the temporal dumb resolver, keeps on installing highest possible versions until it satisfies all dependencies
