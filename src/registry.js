@@ -59,13 +59,54 @@ function resolveNRV(name, semver) {
 //  - on each dependency (todo method to collect these):
 //    - inherited - through private dep, won't get passed further
 //    - public - either own pubDeps or one passed down along public 'branch' - passed further
-// 
+//  - on each subscriber (dependent package)
+//    - nothing, but we need reference to it so that we can ask for his merged deps
 
 // factory
 function nodeRegistryVersion(name, version, initialSemver = '*') {
 
   function mergeSubscribersSemver(subscribers) {
     return subscribers.reduce((merged, sub) => `${merged} ${sub.semver}`)
+  }
+
+  function gatherDependencies() {
+
+  }
+
+  //backup for cut-out code
+  function depSemverOverlap(depOne, depTwo) {
+    return csp.go(function*() {
+      if (depOne[name] !== depTwo[name]) return false
+      if (depOne[resolvedIn] === depTwo[resolvedIn]) return true
+      //if (semverCmp.cmp(setOne[name].semver,setTwo[name].semver)) return true
+      const pkg = yield getter(depOne[name])
+      return !!semver.maxSatisfying(Object.keys(pkg.versions, `${setOne[name].semver} ${setTwo[name].semver}`))
+    })
+  }
+
+  // returns {checkedDeps, conflictingDeps, editedDeps}
+  function crosscheckDependencies(setOne, setTwo) {
+    const ret = {
+      checkedDeps: {},
+      conflictingDeps: {},
+      editedDeps: {}
+    }
+    for (let name in setOne) {
+      const pkg = getter(name)
+      if (setTwo[name] !== undefined) {
+        if (semverCmp.cmp(setOne[name].semver,setTwo[name].semver)) {
+          //check if semvers have overlap (with at least one existing version of package)
+          if () {
+
+          } else {
+
+          } 
+        } else {
+          // if semvers are the same, there's no conflict
+
+        }  
+      }
+    }
   }
 
   return {
@@ -76,12 +117,9 @@ function nodeRegistryVersion(name, version, initialSemver = '*') {
     subscribers: [],
     dependencies: {},
     pkg: getter(name),
-    publicDeps: {
-      // name, semver, origin - if multiple origins, multiple entries in publicDeps
-    },
     
     // TODO move inher/pubs to resolveDeps, nothing for them to do here
-    addDependent: (semver, {inheritedDeps, publicDeps}) => {
+    addDependent: (semver, node) => {
       return csp.go(function*() {
         // TODO the semver part is probably useless, remove later ?
         // cmp returns 0 if semvers match, 1/-1 otherwise - thruthy value of reduce means there wasn't a match
@@ -91,8 +129,7 @@ function nodeRegistryVersion(name, version, initialSemver = '*') {
         //}
         this.subscribers.push({
           semver: semver,
-          publicDeps: publicDeps,
-          inheritedDeps: inheritedDeps
+          node: node
         })
         this.mergedSemver = mergeSubscribersSemver(this.subscribers) // TODO same here
         //TODO fix - no channel
@@ -135,6 +172,15 @@ function nodeRegistryVersion(name, version, initialSemver = '*') {
         // but that would probably not provide any performance gain and would only reduce legibility
         return yield cspAll(map(dependencyNodes, dn => dn.addDependent(this, this.dependencies[dn.name])))
       })
+    },
+
+    // returns {inheritedDeps, publicDeps}
+    exportDependencies: () => {
+      const depMap = new Map()
+      for (let dep of this.dependencies) {
+        let {depIn, depPub} = dep.exportDependencies()
+
+      }
     }
   }
 }
