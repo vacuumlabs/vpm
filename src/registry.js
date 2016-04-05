@@ -26,6 +26,8 @@ nodeRegistry = {
 
 // TODO on pkg, add method/value with only relevant versions (as symbol ?)
 // TODO get only non-conflicting from subscribers, let them resolve their conflicts
+// TODO circular dependencies
+// TODO we should choose between mutating and attempts at merging semvers
 
 //factories should be kept clear of csp, if asynchronicity is required in object creation they are wrapped in createX function
 
@@ -46,31 +48,32 @@ const getter = getPackageInfo(registry, 20)
 
 const nodeRegistry = {}
 
-// returns {checkedDeps, conflictingDeps}
-// checkedDeps are shallow clones of node dependencies
+// returns {passedDeps, conflictingDeps}
+// passedDeps are shallow clones of node dependencies
 // previous iteration excepts same format as is returned (so that we can use this function as reducer)
 // conflictingDeps: {name: [dep1, dep2 ...]}
+// TODO REWRITE!!! no longer works now that dependencies can have multiple versions
 function checkDependencies(previousIteration, newDeps) {
   const ret = {
-    checkedDeps: {},
+    passedDeps: {},
     conflictingDeps: {},
   }
-  const prevNames = new Set(Object.keys(previousIteration.checkedDeps).concat(Object.keys(previousIteration.conflictingDeps)))
+  const prevNames = new Set(Object.keys(previousIteration.passedDeps).concat(Object.keys(previousIteration.conflictingDeps)))
   for (let name in newDeps) {
     if (prevNames.has(name)) {
-      if (previousIteration.checkedDeps[name] !== undefined) {
-        if (previousIteration.checkedDeps[name].resolvedIn !== newDeps[name].resolvedIn) {
+      if (previousIteration.passedDeps[name] !== undefined) {
+        if (previousIteration.passedDeps[name].resolvedIn !== newDeps[name].resolvedIn) {
           //sanity-check
           if (previousIteration.conflictingDeps[name] !== undefined) {
             throw new Error(`Dependency name in both checked and conflicting: ${previousIteration} , ${newDeps}, ${ret}`)
           }
-          // new conflict, move previous dependency from checkedDeps to conflicting, add new conflicting
+          // new conflict, move previous dependency from passedDeps to conflicting, add new conflicting
           previousIteration.conflictingDeps[name] = []
-          previousIteration.conflictingDeps[name].push(previousIteration.checkedDeps[name], clone(newDeps[name]))
-          previousIteration.checkedDeps[name] = undefined
+          previousIteration.conflictingDeps[name].push(previousIteration.passedDeps[name], clone(newDeps[name]))
+          previousIteration.passedDeps[name] = undefined
         } else {
           // merge semvers, they resolve into at least one version
-          previousIteration.checkedDeps[name].semver = `${previousIteration.checkedDeps[name].semver} ${newDeps[name].semver}`
+          previousIteration.passedDeps[name].semver = `${previousIteration.passedDeps[name].semver} ${newDeps[name].semver}`
         }
       } else {
         // find if we can merge with any of the already conflicting ones
@@ -85,7 +88,7 @@ function checkDependencies(previousIteration, newDeps) {
       }
     } else {
       // add non-conflicting
-      previousIteration.checkedDeps[name] = clone(newDeps[name])
+      previousIteration.passedDeps[name] = clone(newDeps[name])
     }
   }
 }
@@ -109,13 +112,14 @@ function resolveNode(name, semver) {
 }
 
 //factory
-function dependency(semver, node) {
+function dependency(semver, node, pub) {
 
   // TODO mutate
 
   return {
     name: node.name,
     semver: semver,
+    public: pub,
     resolvedIn: node,
     status: 'init', // signals when the node for dependency has changed
   }
@@ -124,12 +128,76 @@ function dependency(semver, node) {
 // factory
 function node(name) {
 
+  //const versionPubFilter = t.filter(d => d[Symbol.for('public')])
+  //const depPubFilter = t.map(d => t.seq(d, versionPubFilter))
+  const initSymbol = Symbol()
+
+  function depFilterForSymbol(symName) {
+    const innerFilter = t.filter(d => d[Symbol.for(symName)])
+    return t.map(d => t.seq(d, innerFilter))
+  }
+
+  function getDeps(type) {
+    // should throw if both getIns fail
+    // one is for base package, other for general package.json
+    let deps = getIn(
+      this.pkg.peek(),
+      ['versions', this.version, type],
+      {any: getIn(this.pkg.peek(), [type])}
+    )
+    if (type !== 'dependencies') {
+      // public deps - mark them as such
+      // use symbol so that we don't mix the public flag with versions
+      deps = deps.map(d => d[Symbol.for('public')] = true)
+    }
+    return deps
+  }
+
+  //check if semver is equal to any of versions (also semvers)
+  function semverExists(semver, versions) {
+    for (let ver of versions) {
+      if (semverCmp.cmp(semver,ver) === 0) return ver
+    }
+    return undefined
+  }
+
+  // returns an array of dependency objects
+  function flattenDependencies(depSet) {
+    const ret = []
+    for (let dep of depSet) {
+      for (let version of dep ) {
+        ret.push(version)
+      }
+    }
+    return ret
+  }
+
+  // creates a shallow copy of each dependency in the set
+  function copyDependencies(depSet, removePublicFlag) {
+    const ret = {}
+    for (let dep in depSet) {
+      ret[dep] = {}
+      for (let version in dep) {
+        ret[dep][version] = depSet[dep][version]
+        ret[dep][version][Symbol.for('public')] = removePublicFlag ? undefined : ret[dep][version][Symbol.for('public')]
+      }
+    }
+    return ret
+  }
+
   return {
     name: name,
     version: undefined,
-    status: 'init',
+    status: 'init', // mostly for debug
     subscribers: [],
+    updateToken: initSymbol, // used for signaling discrepancy between existing and checked dependencies
     dependencies: {},
+    successorDependencies: {},
+    checkedDependencies: {
+      passedDeps: {},
+      conflictingDeps: {},
+      updateToken: initSymbol
+    },
     pkg: getter(name),
     depsReady: csp.chan(1),
 
@@ -140,33 +208,88 @@ function node(name) {
       })
     },
 
+    addDependency: (depSet, dependency) => {
+      depSet[dependency.name] = depSet[dependency.name] || {}
+      const existingSemver = semverExists(dependency.semver, Object.keys(depSet[dependency.name]))
+      if (existingSemver === undefined) {
+        depSet[dependency.name][dependency.semver] = dependency
+      }
+      //override public flag if needed
+      depSet[dependency.name][dependency.semver][Symbol.for('public')] =
+        depSet[dependency.name][dependency.semver][Symbol.for('public')] || dependency[Symbol.for('public')]
+      //reset token - TODO only when needed ?
+      this.updateToken = Symbol()
+    },
+
     resolveVersion: (semver) => {
       return csp.go(function*() {
-        this.version = this.pkg.peek().version || filter(this.pkg.peek().versions.keys().sort(semver.rcompare), v => semver.satisfies(v, semver))[0]
-        if (this.version === undefined) throw new Error('No version satisfies requirements') // TODO return false and handle
+        console.assert(this.status === 'init', 'Version should be resolved right after node initialization.')
+        this.status = 'version-start'
+        this.version =
+          (yield this.pkg.peek()).version ||
+          filter((yield this.pkg.peek()).versions.keys().sort(semver.rcompare), v => semver.satisfies(v, semver))[0]
+        console.assert(this.version !== undefined, 'No version satisfies requirements') // TODO return false and handle
+        this.status = 'version-done'
       })
     },
 
     resolveDependencies: () => {
       return csp.go(function*() {
-        if (this.version === undefined) throw new Error('Version needs to be set before resolving dependencies')
-        //should throw if both getIns fail
-        const deps = getIn(
-          this.pkg.peek(),
-          ['versions', this.version, 'dependencies'],
-          {any: getIn(this.pkg.peek(), ['dependencies'])}
-        )
+        console.assert(this.status === 'version-done', 'Dependencies should be resolved right after version')
+        this.status = 'private-dependencies-start'
+        // we assume no overlap in private/public/peer deps, otherwise public > peer > private
+        const deps = Object.assign(getDeps('dependencies'), getDeps('peerDependencies'), getDeps('publicDependencies'))
         const dependencyNodes = yield cspAll(map(Object.keys(deps), pkgName => resolveNode(pkgName, deps[pkgName])))
         for (let dn of dependencyNodes) {
-          this.dependencies[dn.name] = dependency(deps[dn.name], dn)
+          this.addDependency(this.dependencies, dependency(deps[dn.name], dn, deps[Symbol.for('public')]))
           dn.subscribe(deps[dn.name], this)
         }
+        this.status = 'private-dependencies-done'
       })
     },
 
     // returns {inheritedDeps, publicDeps}
-    exportDependencies: () => {
+    // - inherited - through private dep, won't get passed further
+    // - public - either own pubDeps or one passed down along public 'branch' - passed further
+    exportDependencies: (privateDep) => {
+      // merge exported dependencies of dependencies with own public deps
+      const exportPubDeps = t.seq(this.dependencies, depFilterForSymbol('public'))
+      flattenDependencies(t.seq(this.successorDependencies, depFilterForSymbol('public'))).forEach(
+        dep => this.addDependency(exportPubDeps, dep)
+      )
+      return copyDependencies(exportPubDeps, privateDep)
+    },
 
+    updateCheckedDependencies: () => {
+      // TODO asserts ?
+      // generate new symbol, set it here and in checkedDeps
+      this.updateToken = Symbol()
+      // get predecessorDeps from parent(s)
+      let predecessorDeps = {}
+      // TODO FINISHED HERE - get predecessor deps from subscribers, then fix checkeDependencies
+      this.checkedDependencies = {passedDeps: {}, conflictingDeps: {}, updateToken: this.updateToken}
+      checkDependencies(
+        this.checkedDependencies, //TODO FIX !!! not working with current dependency format
+        flattenDependencies(this.dependencies)
+          .concat(flattenDependencies(this.successorDependencies))
+          .concat(flattenDependencies(predecessorDeps))
+      )
+    },
+
+    crawlAndCollectSuccessorDeps: () => {
+      for (let dep of flattenDependencies(this.dependencies)) {
+        // decend to the lowest child first
+        dep.resolvedIn.crawlAndCollectOutsideDeps()
+        flattenDependencies(dep.exportDependencies(dep[Symbol.for('public')])).forEach(
+          d => this.addDependency(this.successorDependencies, d)
+        )
+      }
+    },
+
+    crawlAndCheck: () => {
+      // TODO - check agains update token whether this is needed
+      this.updateCheckedDependencies()
+      flattenDependencies(this.dependencies).forEach(d => d.resolvedIn.crawlAndCheck())
     }
   }
 }
