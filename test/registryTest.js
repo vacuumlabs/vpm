@@ -2,10 +2,14 @@ import {expect} from 'chai'
 
 describe('Registry', function() {
 
+  const getter = getPackageInfo() // TODO
+
   beforeEach(() => {
-    //TODO
+
   })
 
-  it('should do something')
+  it('should retrieve package from the internet', () => {
+
+  })
 
 })

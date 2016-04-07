@@ -1,5 +1,5 @@
 import {expect} from 'chai'
-import {getIn, setIn, updateIn} from '../src/stateUtils'
+import {getIn, setIn, updateIn} from '../src/lib/state_utils'
 
 describe('Deep accessors', function() {
 

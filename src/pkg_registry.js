@@ -1,20 +1,9 @@
 import http from 'http'
 import csp from 'js-csp'
-import {isEqual} from 'lodash'
 
-// TODO: is this needed anymore?
-// limit to help prevent ECONNREFUSED
-// http.globalAgent.maxSockets = 20
+// TODO cleanup
 
-
-// patch csp with a peek method: obtain a value from channel without removing it
-csp.peek = function(ch) {
-  return csp.go(function*() {
-    let res = yield csp.take(ch)
-    yield csp.put(ch, res)
-    return res
-  })
-}
+const registry = {}
 
 // generic GET which returns csp-channel
 // TODO: rewrite this in a more simple form:
@@ -57,21 +46,21 @@ export function cspHttpGet(options) {
 }
 
 // returns channel containg info about single package
-export function _getPackageInfo(pkg) {
+function _getPackageInfo(pkg) {
   let versionGroups = undefined
   let directPubs = undefined
   const packageFunctions = {
-    getVersionGroups = () => {
+    getVersionGroups: () => {
       if (versionGroups !== undefined) return versionGroups
       //TODO CONTINUE HERE!
       return versionGroups
     },
-    getDirectPubs = () => {
+    getDirectPubs: () => {
       if (directPubs !== undefined) return directPubs
       // TODO
       return directPubs
     },
-    getVerionUrl = (verion) => {
+    getVerionUrl: (verion) => {
       // TODO
     }
   }
@@ -91,7 +80,7 @@ export function _getPackageInfo(pkg) {
  * `nrConnections` number of workers and will use `registry` as its cache
 **/
 
-export function getPackageInfo(registry, nrConnections) {
+export function getPackageInfo(nrConnections = 20) {
   let ch = csp.chan()
 
   function* spawnWorker() {
@@ -121,22 +110,4 @@ export function getPackageInfo(registry, nrConnections) {
       return yield csp.peek(resChan)
     })
   }
-}
-
-export function cspAll(channels) {
-  return csp.go(function*() {
-    let res = yield csp.operations.into([], csp.operations.merge(channels))
-    return res
-  })
-}
-
-// returns a channel that blocks until function callback is called
-// the channel yields either an error or csp.CLOSED
-export function cspy(fn, ...args) {
-  let ch = csp.chan()
-  fn(...args, (err) => {
-    if (err) csp.putAsync(ch, err)
-    ch.close()
-  })
-  return ch
 }

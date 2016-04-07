@@ -1,10 +1,9 @@
 import csp from 'js-csp'
 import {set, get} from 'lodash'
-import {getPackageInfo, cspAll} from './csp_utils.js'
-import semverCmp from 'semver-compare'
-import t from 'transducers.js'
+import {cspAll} from './lib/csp_utils.js'
+import {getPackageInfo} from './pkg_registry.js'
+import {map, filter, seq} from 'semver-compare'
 import {getIn} from 'stateUtils'
-const {map, filter, seq} = t
 
 // -- comment section --
 
@@ -26,10 +25,11 @@ nodeRegistry = {
 }
 */
 
+
 // TODO on pkg, add method/value with only relevant versions (as symbol ?)
-// TODO get only non-conflicting from subscribers, let them resolve their conflicts
-// TODO circular dependencies - use update token
-// TODO we should choose between mutating and attempts at merging semvers
+// TODO order packages from conflicting branches by depth (order all ?),
+//   annealing - greater temp == greater chance to jump past (to shallower) non-conflicting dependency
+// TODO mutations - propagate only upwards
 
 //factories should be kept clear of csp, if asynchronicity is required in object creation they are wrapped in createX function
 
@@ -43,8 +43,8 @@ nodeRegistry = {
 
 // -- end comment section --
 
-const registry = {}
-const getter = getPackageInfo(registry, 20)
+
+const getter = getPackageInfo()
 
 const nodeRegistry = {}
 const conflictingNodes = []
