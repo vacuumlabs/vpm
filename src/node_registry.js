@@ -89,6 +89,8 @@ function dependency(semver, node, pub) {
 
 export function nodeFactory(name) {
 
+  let self
+
   //const versionPubFilter = filter(d => d[Symbol.for('public')])
   //const depPubFilter = map(d => seq(d, versionPubFilter))
 
@@ -101,9 +103,9 @@ export function nodeFactory(name) {
     // should throw if both getIns fail
     // one is for base package, other for general package.json
     let deps = getIn(
-      csp.peek(this.pkg),
-      ['versions', this.version, type],
-      {any: getIn(csp.peek(this.pkg), [type])}
+      self.getPkg(),
+      ['versions', self.version, type],
+      {any: getIn(self.getPkg(), [type])}
     )
     if (type !== 'dependencies') {
       // public deps - mark them as such
@@ -145,7 +147,7 @@ export function nodeFactory(name) {
     return ret
   }
 
-  let self = {
+  self = {
     name: name,
     version: undefined,
     status: 'init', // mostly for debug
@@ -158,13 +160,12 @@ export function nodeFactory(name) {
       passedDeps: {},
       conflictingDeps: {}
     },
-    pkg: getter(name),
-    depsReady: csp.chan(1),
+    getPkg: getter.bind(null,name),
 
     test: () => {
       return csp.go(function*() {
-        for (let i = 0; i < 20; i++) {
-          console.log((yield csp.peek(self.pkg)).name)
+        for (let i = 0; i < 5; i++) {
+          console.log((yield self.getPkg()).name)
         }
       })
     },
@@ -192,8 +193,8 @@ export function nodeFactory(name) {
         console.assert(self.status === 'init', 'Version should be resolved right after node initialization.')
         self.status = 'version-start'
         self.version =
-          (yield csp.peek(self.pkg)).version ||
-          filter((yield csp.peek(self.pkg)).versions.keys().sort(rcompare), v => satisfies(v, semver))[0]
+          (yield self.getPkg()).version ||
+          filter((yield self.getPkg()).versions.keys().sort(rcompare), v => satisfies(v, semver))[0]
         console.assert(self.version !== undefined, 'No version satisfies requirements') // TODO return false and handle
         self.status = 'version-done'
       })
