@@ -46,7 +46,7 @@ export function cspHttpGet(options) {
 }
 
 // returns channel containg info about single package
-function _getPackageInfo(pkg) {
+export function _getPackageInfo(pkg) {
   let versionGroups = undefined
   let directPubs = undefined
   const packageFunctions = {
@@ -54,11 +54,6 @@ function _getPackageInfo(pkg) {
       if (versionGroups !== undefined) return versionGroups
       //TODO CONTINUE HERE!
       return versionGroups
-    },
-    getDirectPubs: () => {
-      if (directPubs !== undefined) return directPubs
-      // TODO
-      return directPubs
     },
     getVerionUrl: (verion) => {
       // TODO

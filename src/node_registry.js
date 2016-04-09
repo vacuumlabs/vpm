@@ -57,7 +57,8 @@ export function resetRegistry() {
 }
 
 // finds existing node that fits semver range, or creates a new one
-export function resolveNode(name, semver = '*') {
+// option to ignore dependencies only for testing
+export function resolveNode(name, semver = '*', testIgnoreDeps = false) {
   return csp.go(function*() {
     let nr = get(nodeRegistry, name) || get(set(nodeRegistry, name, {}), name)
     // try to match versions
@@ -69,7 +70,7 @@ export function resolveNode(name, semver = '*') {
     let node = nodeFactory(name)
     yield node.resolveVersion()
     set(nodeRegistry, [name, node.version], node)
-    //yield node.resolveDependencies() // TODO uncomment
+    testIgnoreDeps || (yield node.resolveDependencies())
     return node
   })
 }
@@ -99,20 +100,26 @@ export function nodeFactory(name) {
     return map(d => seq(d, innerFilter))
   }
 
-  function getDeps(type) {
-    // should throw if both getIns fail
-    // one is for base package, other for general package.json
-    let deps = getIn(
-      self.getPkg(),
-      ['versions', self.version, type],
-      {any: getIn(self.getPkg(), [type])}
-    )
-    if (type !== 'dependencies') {
-      // public deps - mark them as such
-      // use symbol so that we don't mix the public flag with versions
-      deps = deps.map(d => d[Symbol.for('public')] = true)
-    }
-    return deps
+  // root package has dependencies directly on itself, without having a version
+  function getDeps(type, rootPkg = false) {
+    return csp.go(function*() {
+      let ver
+      if (rootPkg) {
+        ver = yield self.getPkg()
+      } else {
+        ver = getIn(
+          yield self.getPkg(),
+          ['versions', self.version],
+        )
+      }
+      let deps = getIn(ver, [type], {last: {}})
+      if (type !== 'dependencies') {
+        // public deps - mark them as such
+        // use symbol so that we don't mix the public flag with versions
+        Object.keys(deps).forEach(k => deps[k][Symbol.for('public')] = true)
+      }
+      return deps
+    })
   }
 
   //check if semver is equal to any of versions (also semvers)
@@ -126,9 +133,9 @@ export function nodeFactory(name) {
   // returns an array of dependency objects
   function flattenDependencies(depSet) {
     const ret = []
-    for (let dep of depSet) {
-      for (let version of dep) {
-        ret.push(version)
+    for (let dep in depSet) {
+      for (let version in depSet[dep]) {
+        ret.push(depSet[dep][version])
       }
     }
     return ret
@@ -160,12 +167,12 @@ export function nodeFactory(name) {
       passedDeps: {},
       conflictingDeps: {}
     },
-    getPkg: getter.bind(null,name),
+    getPkg: getter.bind(null, name),
 
     test: () => {
       return csp.go(function*() {
         for (let i = 0; i < 5; i++) {
-          console.log((yield self.getPkg()).name)
+          (yield self.getPkg()).name
         }
       })
     },
@@ -194,7 +201,7 @@ export function nodeFactory(name) {
         self.status = 'version-start'
         self.version =
           (yield self.getPkg()).version ||
-          filter((yield self.getPkg()).versions.keys().sort(rcompare), v => satisfies(v, semver))[0]
+          filter(Object.keys((yield self.getPkg()).versions).sort(rcompare), v => satisfies(v, semver))[0]
         console.assert(self.version !== undefined, 'No version satisfies requirements') // TODO return false and handle
         self.status = 'version-done'
       })
@@ -205,7 +212,7 @@ export function nodeFactory(name) {
         console.assert(self.status === 'version-done', 'Dependencies should be resolved right after version')
         self.status = 'private-dependencies-start'
         // we assume no overlap in private/public/peer deps, otherwise public > peer > private
-        const deps = Object.assign(getDeps('dependencies'), getDeps('peerDependencies'), getDeps('publicDependencies'))
+        const deps = Object.assign(yield getDeps('dependencies'), yield getDeps('peerDependencies'), yield getDeps('publicDependencies'))
         const dependencyNodes = yield cspAll(map(Object.keys(deps), pkgName => resolveNode(pkgName, deps[pkgName])))
         for (let dn of dependencyNodes) {
           self.addDependency(self.dependencies, dependency(deps[dn.name], dn, deps[Symbol.for('public')]))

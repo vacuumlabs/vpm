@@ -1,27 +1,40 @@
 import {expect} from 'chai'
 import 'co-mocha'
-import {getPackageInfo, cspHttpGet} from '../src/pkg_registry.js'
+import {getPackageInfo, _getPackageInfo, cspHttpGet} from '../src/pkg_registry.js'
 import csp from 'js-csp'
 
 describe('Package registry', function() {
+  this.timeout(8000)
 
   const getter = getPackageInfo()
 
-  it('should retrieve package from the internet', function*() {
-    /*
-    //WTF SERIOUSLY
-    let pkg='babel-core'
-    let options = {
-      host: 'registry.npmjs.org',
-      path: `/${pkg}`
-    }
-    let g = getter('babel-core')
-    console.log('gyiasgodiaysgdyoasgfduyasg')
-    console.log(yield csp.take(cspHttpGet(options)))
-    //let a = yield csp.take(getter('babel-core'))
-    //let b = JSON.parse()
-    //expect(a).to.deep.equal(b)
-    */
+  it('should peek', function(done) {
+    let c = csp.chan(1)
+    expect(csp.offer(c, 'foobar')).to.equal(true)
+    csp.takeAsync(csp.go(function*() {
+      for (let i = 0; i < 20; i++) {
+        yield csp.peek(c)
+      }
+    }), () => done())
+  })
+
+  it('should store a peekable package', function(done) {
+    csp.takeAsync(csp.go(function*() {
+      let c = csp.chan(1)
+      csp.operations.pipe(_getPackageInfo('babel-core'), c, true)
+      for (let i = 0; i < 20; i++) {
+        yield csp.peek(c)
+      }
+    }), () => done())
+  })
+
+  it('should get the same package repeatedly', function(done) {
+    csp.takeAsync(csp.go(function*() {
+      let getPkg = getter.bind(null, 'babel-core')
+      for (let i = 0; i < 20; i++) {
+        yield getPkg()
+      }
+    }), () => done())
   })
 
 })

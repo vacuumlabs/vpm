@@ -9,6 +9,7 @@ import {
 import csp from 'js-csp'
 
 describe('Node registry', function() {
+  this.timeout(8000)
 
   const getter = getPackageInfo()
 
@@ -16,7 +17,7 @@ describe('Node registry', function() {
     resetRegistry()
   })
 
-  // copy own properties, get rid of "cannot convert symbol to string" error
+  // TODO might be usefull later ? kept for now
   function projection(obj) {
     let ret = {}
     for (let key in obj) {
@@ -30,36 +31,63 @@ describe('Node registry', function() {
     return ret
   }
 
+  function flattenDependencies(depSet) {
+    const ret = []
+    for (let dep in depSet) {
+      for (let version in depSet[dep]) {
+        ret.push(depSet[dep][version])
+      }
+    }
+    return ret
+  }
+
+  function dumbPrint(obj, updateToken = Symbol(), offset = 0) {
+    if (obj.checkToken === updateToken) return
+    console.log(`${' '.repeat(offset)}${obj.name}`)
+    obj.checkToken = updateToken
+    flattenDependencies(obj.dependencies).forEach(d => dumbPrint(d.resolvedIn, updateToken, offset+2))
+  }
+
   it('should create empty node', function() {
+    //csp.takeAsync(nodeFactory('babel-core').test(), () => done())
     // we're good if no error is thrown
     nodeFactory('babel-core')
   })
 
-  it('should peek', function(done) {
-    let c = csp.chan(1)
-    expect(csp.offer(c, 'foobar')).to.equal(true)
+  it('should pass at least through this', function(done) {
+    csp.takeAsync(nodeFactory('babel-core').test(), () => done())
+  })
+
+  it('resolve node version', function(done) {
     csp.takeAsync(csp.go(function*() {
-      for (let i = 0; i < 20; i++) {
-        yield csp.peek(c)
+      let node = nodeFactory('babel-core')
+      yield node.resolveVersion()
+      console.log(node.version)
+      expect(node.version).to.not.equal(undefined)
+    }), () => done())
+  })
+
+  it('resolve node and ignore it`s dependencies', function(done) {
+    csp.takeAsync(csp.go(function*() {
+      // should create once and then always return the same object
+      let arr = []
+      for (let i = 0; i < 8; i++) {
+        arr.push(yield csp.peek(resolveNode('babel-core', '*', true)))
+        expect(arr[0] === arr[i])
       }
     }), () => done())
   })
 
-
-  it('should pass at least through this', function(done) {
-    csp.takeAsync(nodeFactory('babel-core').test(), () => done())
+  it('resolve node', function(done) {
+    csp.takeAsync(csp.go(function*() {
+      // should create once and then always return the same object
+      let arr = []
+      for (let i = 0; i < 8; i++) {
+        arr.push(yield csp.peek(resolveNode('babel-core', '*')))
+        expect(arr[0] === arr[i])
+      }
+      console.log(arr[0].dependencies)
+      dumbPrint(arr[0])
+    }), () => done())
   })
-/*
-  it('should resolve node', function(done) {
-    let node = csp.takeAsync(resolveNode('babel-core'), () => {
-      let nodetwo = nodeFactory('babel-core')
-      nodetwo.resolveVersion()
-      console.log('WHAAAAT')
-      console.log(node)
-      console.log(nodetwo)
-      expect(projection(node)).to.deep.equal(projection(nodetwo))
-      done()
-    })
-  })
-*/
 })
