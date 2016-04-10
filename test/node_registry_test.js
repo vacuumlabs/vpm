@@ -12,8 +12,6 @@ import csp from 'js-csp'
 describe('Node registry', function() {
   this.timeout(16000)
 
-  const getter = getPackageInfo()
-
   beforeEach(() => {
     resetRegistry()
   })
@@ -30,23 +28,6 @@ describe('Node registry', function() {
       }
     }
     return ret
-  }
-
-  function flattenDependencies(depSet) {
-    const ret = []
-    for (let dep in depSet) {
-      for (let version in depSet[dep]) {
-        ret.push(depSet[dep][version])
-      }
-    }
-    return ret
-  }
-
-  function dumbPrint(obj, updateToken = Symbol(), offset = 0) {
-    if (obj.checkToken === updateToken) return
-    console.log(`${' '.repeat(offset)}${obj.name}`)
-    obj.checkToken = updateToken
-    flattenDependencies(obj.dependencies).forEach(d => dumbPrint(d.resolvedIn, updateToken, offset+2))
   }
 
   it('should create empty node', function() {
@@ -81,9 +62,7 @@ describe('Node registry', function() {
 
   it('should resolve node', function(done) {
     csp.takeAsync(csp.go(function*() {
-      let root = yield resolveNode('babel-core', '*')
-      console.log(root.dependencies)
-      dumbPrint(root)
+      (yield resolveNode('babel-core', '*')).crawlAndPrint()
     }), () => done())
   })
 

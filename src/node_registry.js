@@ -6,11 +6,11 @@ import {set, get} from 'lodash'
 import {cspAll} from './lib/csp_utils'
 import {getIn} from './lib/state_utils'
 import {getPackageInfo} from './pkg_registry'
-// -- comment section --
 
-// TODO most of these comments are outdated, fix
+/* -- comment section --
 
-/*
+TODO some of these comments are outdated, fix
+
 nodeRegistry = {
   name => {
     version => {
@@ -24,26 +24,35 @@ nodeRegistry = {
     }
   }
 }
-*/
 
+depSet = {
+  name => {
+    version => {
+      dependencyObject
+    }
+  }
+}
 
-// TODO on pkg, add method/value with only relevant versions (as symbol ?)
-// TODO order packages from conflicting branches by depth (order all ?),
-//   annealing - greater temp == greater chance to jump past (to shallower) non-conflicting dependency
-// TODO mutations - propagate only upwards
+TODO on pkg, add method/value with only relevant versions (as symbol ?)
 
-//factories should be kept clear of csp, if asynchronicity is required in object creation they are wrapped in createX function
+TODO order packages from conflicting branches by depth (order all ?),
+annealing - greater temp == greater chance to jump past (to shallower)
+non-conflicting dependency
 
-// when checking public deps compatibility:
-//  - own public deps - defined in the package itself
-//  - on each dependency (todo method to collect these):
-//    - inherited - through private dep, won't get passed further
-//    - public - either own pubDeps or one passed down along public 'branch' - passed further
-//  - on each subscriber (dependent package)
-//    - nothing, but we need reference to it so that we can ask for his merged deps
+TODO mutations - propagate only upwards
 
-// -- end comment section --
+factories should be kept clear of csp, if asynchronicity is required in
+object creation they are wrapped in createX function
 
+when checking public deps compatibility:
+ - own public deps - defined in the package itself
+ - on each dependency (todo method to collect these):
+   - inherited - through private dep, won't get passed further
+   - public - either own pubDeps or one passed down along public 'branch' - passed further
+ - on each subscriber (dependent package)
+   - nothing, but we need reference to it so that we can ask for his merged deps
+
+-- end comment section -- */
 
 const getter = getPackageInfo()
 
@@ -303,6 +312,13 @@ export function nodeFactory(name) {
       self.checkToken = updateToken
       if (!self.checkDependencies()) conflictingNodes.push(self)
       flattenDependencies(self.dependencies).forEach(d => d.resolvedIn.crawlAndCheck(updateToken))
+    },
+
+    crawlAndPrint: (updateToken = Symbol(), offset = 0) => {
+      if (self.checkToken === updateToken) return
+      console.log(`${' '.repeat(offset)}${self.name}`)
+      self.checkToken = updateToken
+      flattenDependencies(self.dependencies).forEach(d => d.resolvedIn.crawlAndPrint(updateToken, offset+2))
     }
   }
 
