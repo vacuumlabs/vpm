@@ -12,7 +12,7 @@ const registry = {}
 //   }
 //   return result
 export function cspHttpGet(options) {
-  let reschan = csp.chan(3)
+  let reschan = csp.chan(1)
 
   function processResponse(response) {
     let str = []

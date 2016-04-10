@@ -1,5 +1,6 @@
 import csp from 'js-csp'
 import {cloneDeep} from 'lodash'
+const fs = require('fs')
 
 // patch csp with a peek method: obtain a value from channel without removing it
 csp.peek = function(ch) {
@@ -36,4 +37,46 @@ export function cspy(fn, ...args) {
     ch.close()
   })
   return ch
+}
+
+// fs.stat csp version
+export function cspStat(path, lstat = false) {
+  let ch = csp.chan()
+  let fn = lstat ? fs.lstat : fs.stat
+  fn(path, (err, stat) => {
+    if (err) throw err
+    csp.putAsync(ch, stat)
+    ch.close()
+  })
+  return ch
+}
+
+// based on getPackageInfo used in pkg_registry
+// returns getter that accepts function returning csp channel
+// makes sure up to nrWorkers of these functions are run in parallel
+// may pass in a channel and pipe directly to it
+export function spawnWorkers(nrWorkers = 20, ch = csp.chan()) {
+
+  function* spawnWorker() {
+    while (true) {
+      let [fn, resChan] = yield csp.take(ch)
+      let ret = yield fn()
+      if (ret) yield csp.put(resChan, ret)
+      resChan.close()
+    }
+  }
+
+  for (let i = 0; i < nrWorkers; i++) {
+    csp.go(spawnWorker)
+  }
+
+  // access function
+  return (fn) => {
+    return csp.go(function*() {
+      // resChan has to have buffer of a size 1 to be peek-able
+      let resChan = csp.chan()
+      yield csp.put(ch, [fn, resChan])
+      return resChan
+    })
+  }
 }

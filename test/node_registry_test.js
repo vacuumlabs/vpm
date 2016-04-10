@@ -8,6 +8,7 @@ import {
   getConflictingNodes,
 } from '../src/node_registry.js'
 import csp from 'js-csp'
+import {uniq} from 'lodash'
 
 describe('Node registry', function() {
   this.timeout(16000)
@@ -62,7 +63,7 @@ describe('Node registry', function() {
 
   it('should resolve node', function(done) {
     csp.takeAsync(csp.go(function*() {
-      (yield resolveNode('babel-core', '*')).crawlAndPrint()
+      (yield resolveNode('slash', '*')).crawlAndPrint()
     }), () => done())
   })
 
@@ -72,6 +73,15 @@ describe('Node registry', function() {
       root.crawlAndCollectSuccessorDeps()
       root.crawlAndCheck()
       console.log(getConflictingNodes())
+    }), () => done())
+  })
+
+  it('should flatten', function(done) {
+    csp.takeAsync(csp.go(function*() {
+      let flatTreeMapped = (yield resolveNode('babel-core', '*')).crawlAndFlatten()
+      let deduped = uniq(flatTreeMapped)
+      console.log(flatTreeMapped.map(o => `${o.name}${o.version}`))
+      expect(flatTreeMapped.length).to.equal(deduped.length)
     }), () => done())
   })
 })

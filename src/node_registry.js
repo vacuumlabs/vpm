@@ -1,13 +1,19 @@
 import csp from 'js-csp'
 const semverCmp = require('semver-compare')
+const mkdirp = require('mkdirp')
+const fs = require('fs')
+const rimraf = require('rimraf')
 import {satisfies, rcompare} from 'semver'
 import {map, filter, seq} from 'transducers.js'
 import {set, get} from 'lodash'
-import {cspAll} from './lib/csp_utils'
+import {cspAll, cspy, cspStat} from './lib/csp_utils'
 import {getIn} from './lib/state_utils'
 import {getPackageInfo} from './pkg_registry'
+import {extractTarballDownload} from 'tarball-extract'
 
 /* -- comment section --
+
+TODO devDependencies
 
 TODO some of these comments are outdated, fix
 
@@ -101,7 +107,7 @@ function dependency(semver, node, pub) {
   }
 }
 
-export function nodeFactory(name) {
+export function nodeFactory(name, isRoot = false) {
 
   let self
 
@@ -113,17 +119,19 @@ export function nodeFactory(name) {
     return map(d => seq(d, innerFilter))
   }
 
-  // root package has dependencies directly on itself, without having a version
-  function getDeps(type, rootPkg = false) {
+  // package downloaded from npm-registry contains all versions
+  // one downloaded from github / root package has dependencies directly on itself
+  // TODO move registryPkg to self, set it based on parsed dependency
+  function getDeps(type, registryPkg = true) {
     return csp.go(function*() {
       let ver
-      if (rootPkg) {
-        ver = yield self.getPkg()
-      } else {
+      if (registryPkg) {
         ver = getIn(
           yield self.getPkg(),
           ['versions', self.version],
         )
+      } else {
+        ver = yield self.getPkg()
       }
       let deps = getIn(ver, [type], {last: {}})
       if (type !== 'dependencies') {
@@ -132,6 +140,31 @@ export function nodeFactory(name) {
         Object.keys(deps).forEach(k => deps[k][Symbol.for('public')] = true)
       }
       return deps
+    })
+  }
+
+  // TODO move registryPkg to self, set it based on parsed dependency
+  function getTarballUrl(registryPkg = true) {
+    return csp.go(function*() {
+      let tarball
+      if (registryPkg) {
+        // sometimes, the tarball link is stored under 'dist' key, bundled with shasum
+        tarball = getIn(
+          yield self.getPkg(),
+          ['versions', self.version, 'tarball'],
+          {
+            last: getIn(
+              yield self.getPkg(),
+              ['versions', self.version, 'dist', 'tarball']
+            )
+          }
+        )
+      } else {
+        tarball = getIn(yield self.getPkg(), ['tarball'])
+      }
+      console.log('========================================')
+      console.log(tarball)
+      return tarball
     })
   }
 
@@ -170,7 +203,9 @@ export function nodeFactory(name) {
   self = {
     name: name,
     version: undefined,
+    isRoot: isRoot,
     status: 'init', // mostly for debug
+    installPath: undefined,
     subscribers: {},
     checkToken: Symbol(),
     successorToken: Symbol(),
@@ -307,6 +342,42 @@ export function nodeFactory(name) {
       }
     },
 
+    // TODO - separate download and install into different worker groups?
+    downloadAndInstall: (rootPath) => {
+      return csp.go(function*() {
+        yield cspy(
+          mkdirp,
+          `${rootPath}/_tmp`
+        )
+        let targetUrl = yield getTarballUrl()
+        let tempDir = Math.random().toString(36).substring(8)
+        let tempPath = `${rootPath}/vpm_modules/_${self.name}${self.version}${tempDir}`
+        let targetPath = `${rootPath}/vpm_modules/${self.name}${self.version}`
+        let ret = yield cspy(
+          extractTarballDownload,
+          targetUrl,
+          `${rootPath}/_tmp/${targetUrl.split('/').pop()}`,
+          tempPath,
+          {}
+        )
+        if (ret !== csp.CLOSED) {
+          console.log(`Error while installing ${self.name}${self.version}`)
+          console.log(ret)
+          return ret
+        }
+        // tar may have it's content in 'package' subdirectory
+        // TODO error handling ?
+        if ((yield cspStat(`${tempPath}/package`)).isDirectory) {
+          yield cspy(fs.rename, `${tempPath}/package`, targetPath)
+          yield cspy(rimraf, tempPath)
+        } else {
+          yield cspy(fs.rename, tempPath, targetPath)
+        }
+        self.status = 'installed'
+        self.installPath = targetPath
+      })
+    },
+
     crawlAndCheck: (updateToken = Symbol()) => {
       if (self.checkToken === updateToken) return
       self.checkToken = updateToken
@@ -319,7 +390,16 @@ export function nodeFactory(name) {
       console.log(`${' '.repeat(offset)}${self.name}`)
       self.checkToken = updateToken
       flattenDependencies(self.dependencies).forEach(d => d.resolvedIn.crawlAndPrint(updateToken, offset+2))
-    }
+    },
+
+    // skip argument allows us to ommit root node when needed
+    crawlAndFlatten: (updateToken = Symbol(), skip = false) => {
+      if (self.checkToken === updateToken) return []
+      let ret = skip ? [] : [self]
+      self.checkToken = updateToken
+      flattenDependencies(self.dependencies).forEach(d => ret = ret.concat(d.resolvedIn.crawlAndFlatten(updateToken)))
+      return ret
+    },
   }
 
   return self
