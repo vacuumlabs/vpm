@@ -1,5 +1,5 @@
 import csp from 'js-csp'
-import semverCmp from 'semver-compare'
+const semverCmp = require('semver-compare')
 import {satisfies, rcompare} from 'semver'
 import {map, filter, seq} from 'transducers.js'
 import {set, get} from 'lodash'
@@ -54,6 +54,10 @@ let conflictingNodes = []
 export function resetRegistry() {
   nodeRegistry = {}
   conflictingNodes = []
+}
+
+export function getConflictingNodes() {
+  return conflictingNodes
 }
 
 // finds existing node that fits semver range, or creates a new one
@@ -125,7 +129,7 @@ export function nodeFactory(name) {
   //check if semver is equal to any of versions (also semvers)
   function semverExists(semver, versions) {
     for (let ver of versions) {
-      if (semverCmp.cmp(semver,ver) === 0) return ver
+      if (semverCmp(semver,ver) === 0) return ver
     }
     return undefined
   }
@@ -158,7 +162,7 @@ export function nodeFactory(name) {
     name: name,
     version: undefined,
     status: 'init', // mostly for debug
-    subscribers: [],
+    subscribers: {},
     checkToken: Symbol(),
     successorToken: Symbol(),
     dependencies: {},
@@ -178,10 +182,7 @@ export function nodeFactory(name) {
     },
 
     subscribe: (semver, node) => {
-      self.subscribers.push({
-        semver: semver,
-        node: node
-      })
+      self.addDependency(self.subscribers, dependency(semver, node))
     },
 
     addDependency: (depSet, dependency) => {
@@ -235,8 +236,8 @@ export function nodeFactory(name) {
 
     getPredecessorDependencies: () => {
       let predecessorDeps = {}
-      for (let sub of self.subscribers) {
-        sub.node.exportDependencies().forEach(
+      for (let sub of flattenDependencies(self.subscribers)) {
+        flattenDependencies(sub.resolvedIn.exportDependencies()).forEach(
           d => self.addDependency(predecessorDeps, d)
         )
       }
@@ -291,7 +292,7 @@ export function nodeFactory(name) {
       for (let dep of flattenDependencies(self.dependencies)) {
         // decend to the lowest child first
         dep.resolvedIn.crawlAndCollectSuccessorDeps(updateToken)
-        flattenDependencies(dep.exportDependencies(!dep[Symbol.for('public')])).forEach(
+        flattenDependencies(dep.resolvedIn.exportDependencies(!dep[Symbol.for('public')])).forEach(
           d => self.addDependency(self.successorDependencies, d)
         )
       }

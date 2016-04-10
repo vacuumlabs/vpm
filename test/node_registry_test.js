@@ -5,11 +5,12 @@ import {
   nodeFactory,
   resetRegistry,
   resolveNode,
+  getConflictingNodes,
 } from '../src/node_registry.js'
 import csp from 'js-csp'
 
 describe('Node registry', function() {
-  this.timeout(8000)
+  this.timeout(16000)
 
   const getter = getPackageInfo()
 
@@ -58,7 +59,7 @@ describe('Node registry', function() {
     csp.takeAsync(nodeFactory('babel-core').test(), () => done())
   })
 
-  it('resolve node version', function(done) {
+  it('should resolve node version', function(done) {
     csp.takeAsync(csp.go(function*() {
       let node = nodeFactory('babel-core')
       yield node.resolveVersion()
@@ -67,27 +68,31 @@ describe('Node registry', function() {
     }), () => done())
   })
 
-  it('resolve node and ignore it`s dependencies', function(done) {
+  it('should resolve node and ignore it`s dependencies', function(done) {
     csp.takeAsync(csp.go(function*() {
       // should create once and then always return the same object
       let arr = []
       for (let i = 0; i < 8; i++) {
-        arr.push(yield csp.peek(resolveNode('babel-core', '*', true)))
+        arr.push(yield resolveNode('babel-core', '*', true))
         expect(arr[0] === arr[i])
       }
     }), () => done())
   })
 
-  it('resolve node', function(done) {
+  it('should resolve node', function(done) {
     csp.takeAsync(csp.go(function*() {
-      // should create once and then always return the same object
-      let arr = []
-      for (let i = 0; i < 8; i++) {
-        arr.push(yield csp.peek(resolveNode('babel-core', '*')))
-        expect(arr[0] === arr[i])
-      }
-      console.log(arr[0].dependencies)
-      dumbPrint(arr[0])
+      let root = yield resolveNode('babel-core', '*')
+      console.log(root.dependencies)
+      dumbPrint(root)
+    }), () => done())
+  })
+
+  it('should crawl, collect and check public successors', function(done) {
+    csp.takeAsync(csp.go(function*() {
+      let root = yield resolveNode('babel-core', '*')
+      root.crawlAndCollectSuccessorDeps()
+      root.crawlAndCheck()
+      console.log(getConflictingNodes())
     }), () => done())
   })
 })
