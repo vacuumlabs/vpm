@@ -5,7 +5,7 @@ const fs = require('fs')
 const rimraf = require('rimraf')
 import {satisfies, rcompare} from 'semver'
 import {map, filter, seq} from 'transducers.js'
-import {set, get} from 'lodash'
+import {set, get, sample, random, isEmpty} from 'lodash'
 import {cspAll, cspy, cspStat} from './lib/csp_utils'
 import {getIn} from './lib/state_utils'
 import {getPackageInfo} from './pkg_registry'
@@ -16,7 +16,6 @@ import {extractTarballDownload} from 'tarball-extract'
 nodeRegistry = {
   name => {
     version => {
-      mergedSemver: semver,
       dependent: [{
         node: node,
         semver: semver
@@ -52,6 +51,41 @@ export function getConflictingNodes() {
   return conflictingNodes
 }
 
+// checks and repairs subtree starting at root
+// despite original intent, root must be tree root, otherwise it might break
+export function mutateIntoConsistent(root) {
+  conflictingNodes = []
+  root.crawlAndCheck()
+  while (conflictingNodes.length) {
+    console.log('New mutation round')
+    //choose random conflicting
+    let node = sample(conflictingNodes)
+    // TODO annealing - go further up with higher temp, go rand(0..4) for now
+    let depth = random(4)
+    for (let i = 0; i < depth; i++) {
+      //abort if we can't go higher
+      if (isEmpty(node.subscribers)) break
+      node = sample(sample(node.subscribers)).resolvedIn
+      node.mutate()
+      root.crawlAndCollectSuccessorDeps
+    }
+    conflictingNodes = []
+    root.crawlAndCheck()
+  }
+}
+
+// expects package.json in root path
+export function resolveRootNode(rootPath) {
+  return csp.go(function*() {
+    let node = nodeFactory('__root__')
+    // TODO continue here
+    //yield node.resolveVersion()
+    set(nodeRegistry, ['__root__', node.version], node)
+    yield node.resolveDependencies()
+    return node
+  })
+}
+
 // finds existing node that fits semver range, or creates a new one
 // option to ignore dependencies only for testing
 export function resolveNode(name, semver = '*', testIgnoreDeps = false) {
@@ -71,11 +105,40 @@ export function resolveNode(name, semver = '*', testIgnoreDeps = false) {
   })
 }
 
-//factory
+function removeFromDepSet(depSet, nodeObj) {
+  for (let dep in depSet) {
+    for (let version in depSet[dep]) {
+      if (depSet[dep][version].resolvedIn === nodeObj) {
+        if (Object.keys(depSet[dep]).length === 1) {
+          // was the only version, remove whole dependency
+          delete depSet[dep]
+        } else {
+          // only delete single version
+          delete depSet[dep][version]
+        }
+      }
+    }
+  }
+}
+
+// create dependency and assign both ways
+// semver, parent, public
+function linkNodes(parent, child, semver, pub) {
+  let dep = dependency(semver, child, pub)
+  parent.addDependency(parent.dependencies, dep)
+  child.addDependency(child.subscribers, dep)
+}
+
+// remove from both dependencies and subscribers
+function unlinkNodes(parent, child) {
+  removeFromDepSet(parent.dependencies, child)
+  removeFromDepSet(child.subscribers, parent)
+}
+
+// factory
+// 'one way' (stores only the 'child' of dep. assocation) so that it can be exported
+// and bubble up along the hierarchy
 function dependency(semver, node, pub) {
-
-  // TODO mutate
-
   return {
     name: node.name,
     semver: semver,
@@ -84,7 +147,7 @@ function dependency(semver, node, pub) {
   }
 }
 
-export function nodeFactory(name, isRoot = false) {
+export function nodeFactory(name) {
 
   let self
 
@@ -96,6 +159,7 @@ export function nodeFactory(name, isRoot = false) {
     return map(d => seq(d, innerFilter))
   }
 
+  // gets package.json format of dependencies, with symbol for public where needed
   // package downloaded from npm-registry contains all versions
   // one downloaded from github / root package has dependencies directly on itself
   // TODO move registryPkg to self, set it based on parsed dependency
@@ -180,8 +244,8 @@ export function nodeFactory(name, isRoot = false) {
   self = {
     name: name,
     version: undefined,
-    isRoot: isRoot,
-    status: 'init', // mostly for debug
+    isRoot: name === '__root__', // ugly, redo / remove ?
+    status: 'init', // never really used, remove
     installPath: undefined,
     subscribers: {},
     checkToken: Symbol(),
@@ -200,10 +264,6 @@ export function nodeFactory(name, isRoot = false) {
           (yield self.getPkg()).name
         }
       })
-    },
-
-    subscribe: (semver, node) => {
-      self.addDependency(self.subscribers, dependency(semver, node))
     },
 
     addDependency: (depSet, dependency) => {
@@ -229,17 +289,17 @@ export function nodeFactory(name, isRoot = false) {
       })
     },
 
+    // TODO check if already resolved?
     resolveDependencies: () => {
       return csp.go(function*() {
         console.assert(self.status === 'version-done', 'Dependencies should be resolved right after version')
         self.status = 'private-dependencies-start'
         // installing devDeps only for root package
         // we assume no overlap in private/public/peer deps, otherwise public > peer > dev > private
-        const deps = Object.assign(yield getDeps('dependencies'), isRoot ? yield getDeps('devDependencies') : {}, yield getDeps('peerDependencies'), yield getDeps('publicDependencies'))
+        const deps = Object.assign(yield getDeps('dependencies'), (self.name === '__root__') ? yield getDeps('devDependencies') : {}, yield getDeps('peerDependencies'), yield getDeps('publicDependencies'))
         const dependencyNodes = yield cspAll(map(Object.keys(deps), pkgName => resolveNode(pkgName, deps[pkgName])))
         for (let dn of dependencyNodes) {
-          self.addDependency(self.dependencies, dependency(deps[dn.name], dn, deps[Symbol.for('public')]))
-          dn.subscribe(deps[dn.name], self)
+          linkNodes(self, dn, deps[dn.name], deps[Symbol.for('public')])
         }
         self.status = 'private-dependencies-done'
       })
@@ -311,6 +371,7 @@ export function nodeFactory(name, isRoot = false) {
     crawlAndCollectSuccessorDeps: (updateToken = Symbol()) => {
       if (self.successorToken === updateToken) return
       self.successorToken = updateToken
+      self.successorDependencies = {}
       for (let dep of flattenDependencies(self.dependencies)) {
         // decend to the lowest child first
         dep.resolvedIn.crawlAndCollectSuccessorDeps(updateToken)
@@ -320,11 +381,30 @@ export function nodeFactory(name, isRoot = false) {
       }
     },
 
+    mutate: () => {
+      return csp.go(function*() {
+        let allSubscribers = flattenDependencies(self.subscribers)
+        // make sure we satisfy at least one of the subscribers
+        let subToReceiveMutation = sample(allSubscribers)
+        let version = sample(yield self.getPkg().getAvailableMutation(self.version, subToReceiveMutation.semver))
+        let newNode = resolveNode(self.name, version)
+        // the one subscriber is guaranteed to receive the new node
+        // for the rest, apply where possible
+        for (let sub of allSubscribers) {
+          if (satisfies(version, sub.semver)) {
+            unlinkNodes(sub.resolvedIn, self)
+            linkNodes(sub.resolvedIn, newNode, sub.semver, sub[Symbol.for('public')])
+            console.log(`Mutated ${self.name}: ${self.version} -> ${newNode.version} for ${sub.resolvedIn.name}`)
+          }
+        }
+      })
+    },
+
     // TODO - separate download and install into different worker groups?
     // TODO - export bin files (according to documentation) to .bin as symlinks
     downloadAndInstall: (rootPath) => {
       return csp.go(function*() {
-        if (isRoot) {
+        if (self.name === '__root__') {
           self.status = 'installed'
           self.installPath = rootPath
         }
@@ -347,7 +427,7 @@ export function nodeFactory(name, isRoot = false) {
           return ret
         }
         // tar may have it's content in 'package' subdirectory
-        // TODO error handling ?
+        // TODO error handling ? TODO subdirectory might not be named 'package'
         if ((yield cspStat(`${tempPath}/package`)).isDirectory) {
           yield cspy(fs.rename, `${tempPath}/package`, targetPath)
           yield cspy(rimraf, tempPath)

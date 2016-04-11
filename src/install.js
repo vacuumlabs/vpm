@@ -12,7 +12,7 @@ TODO maybe save dependency tree / check before installing ? install only missing
 const installer = spawnWorkers(5)
 
 // installs resolved root node and all it's dependencies
-export function install(rootNode, targetPath = './') {
+export function installTreeInto(rootNode, targetPath = './') {
   return csp.go(function*() {
     targetPath = path.resolve(targetPath) // convert to absolute
     let allNodes = rootNode.crawlAndFlatten()

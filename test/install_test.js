@@ -9,13 +9,13 @@ import {
   resolveNode,
   getConflictingNodes,
 } from '../src/node_registry.js'
-import {install} from '../src/install'
+import {installTreeInto} from '../src/install'
 import {cspAll, spawnWorkers, cspy, cspStat} from '../src/lib/csp_utils'
 import csp from 'js-csp'
 const rimraf = require('rimraf')
 
 describe('Install', function() {
-  this.timeout(32000)
+  this.timeout(64000)
 
   const targetPath = './_test'
 
@@ -55,7 +55,7 @@ describe('Install', function() {
   it('should install', function(done) {
     csp.takeAsync(csp.go(function*() {
       yield cspy(rimraf, targetPath)
-      yield install(yield resolveNode('babel-core', '*'), targetPath)
+      yield installTreeInto(yield resolveNode('babel-core', '*'), targetPath)
       //check manually for now (TODO, use cspStat)
     }), () => done())
   })

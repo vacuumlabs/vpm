@@ -8,6 +8,19 @@ describe('Package registry', function() {
 
   const getter = getPackageInfo()
 
+  it('should do something with invalid link?', function(done) {
+    csp.takeAsync(csp.go(function*() {
+      let pkg = 'wleehehehehehehe'
+      let options = {
+        host: 'registry.npmjs.org',
+        path: `/${pkg}`
+      }
+      let ret = yield csp.take(cspHttpGet(options))
+      let pkgObj = JSON.parse(ret)
+      expect(pkgObj).to.deep.equal({})
+    }), () => done())
+  })
+
   it('should peek', function(done) {
     let c = csp.chan(1)
     expect(csp.offer(c, 'foobar')).to.equal(true)
