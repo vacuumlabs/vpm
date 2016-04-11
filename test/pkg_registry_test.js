@@ -4,7 +4,7 @@ import {getPackageInfo, _getPackageInfo, cspHttpGet} from '../src/pkg_registry.j
 import csp from 'js-csp'
 
 describe('Package registry', function() {
-  this.timeout(8000)
+  this.timeout(32000)
 
   const getter = getPackageInfo()
 

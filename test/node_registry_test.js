@@ -11,7 +11,7 @@ import csp from 'js-csp'
 import {uniq} from 'lodash'
 
 describe('Node registry', function() {
-  this.timeout(16000)
+  this.timeout(32000)
 
   beforeEach(() => {
     resetRegistry()
@@ -47,17 +47,6 @@ describe('Node registry', function() {
       yield node.resolveVersion()
       console.log(node.version)
       expect(node.version).to.not.equal(undefined)
-    }), () => done())
-  })
-
-  it('should resolve node and ignore it`s dependencies', function(done) {
-    csp.takeAsync(csp.go(function*() {
-      // should create once and then always return the same object
-      let arr = []
-      for (let i = 0; i < 8; i++) {
-        arr.push(yield resolveNode('babel-core', '*', true))
-        expect(arr[0] === arr[i])
-      }
     }), () => done())
   })
 
