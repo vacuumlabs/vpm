@@ -13,10 +13,6 @@ import {extractTarballDownload} from 'tarball-extract'
 
 /* -- comment section --
 
-TODO devDependencies
-
-TODO some of these comments are outdated, fix
-
 nodeRegistry = {
   name => {
     version => {
@@ -38,25 +34,6 @@ depSet = {
     }
   }
 }
-
-TODO on pkg, add method/value with only relevant versions (as symbol ?)
-
-TODO order packages from conflicting branches by depth (order all ?),
-annealing - greater temp == greater chance to jump past (to shallower)
-non-conflicting dependency
-
-TODO mutations - propagate only upwards
-
-factories should be kept clear of csp, if asynchronicity is required in
-object creation they are wrapped in createX function
-
-when checking public deps compatibility:
- - own public deps - defined in the package itself
- - on each dependency (todo method to collect these):
-   - inherited - through private dep, won't get passed further
-   - public - either own pubDeps or one passed down along public 'branch' - passed further
- - on each subscriber (dependent package)
-   - nothing, but we need reference to it so that we can ask for his merged deps
 
 -- end comment section -- */
 
