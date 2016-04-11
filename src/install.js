@@ -1,31 +1,26 @@
-import {mkdirp} from 'mkdirp'
-import tarball from 'tarball-extract'
 import csp from 'js-csp'
-import {map, filter, seq} from 'transducers.js'
-import {spawnWorkers, cspAll} from './csp_utils'
-import {rimraf} from 'rimraf'
+import {spawnWorkers, cspAll, cspy} from './lib/csp_utils'
+const rimraf = require('rimraf')
+const path = require('path')
 
 /* -- comment section --
 
-TODO flatten package tree
-TODO download all flattened
-TODO install all downloaded
-TODO parallel down/inst ? check node registry
+TODO maybe save dependency tree / check before installing ? install only missing ?
 
 -- end comment section -- */
 
 const installer = spawnWorkers(5)
 
-// at this point, nodes should store their relative install path
-function symlinkRecurse(node, rootPath, token = Symbol()) {
-  // TODO
-}
-
 // installs resolved root node and all it's dependencies
 export function install(rootNode, targetPath = './') {
   return csp.go(function*() {
+    targetPath = path.resolve(targetPath) // convert to absolute
     let allNodes = rootNode.crawlAndFlatten()
     yield cspAll(allNodes.map(node => installer(node.downloadAndInstall.bind(null, targetPath.replace(/\/+$/, '')))))
-    symlinkRecurse(rootNode, `${targetPath.replace(/\/+$/, '')}/node_modules`)
+    // sequential linking - TODO test if accessing fs for symlinks benefits from parallelization
+    for (let node of allNodes) {
+      yield node.symlink(targetPath.replace(/\/+$/, ''))
+    }
+    yield cspy(rimraf, `${targetPath}/tmp_modules`) // delete downloaded archives
   })
 }

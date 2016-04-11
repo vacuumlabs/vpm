@@ -134,7 +134,7 @@ export function nodeFactory(name, isRoot = false) {
         ver = yield self.getPkg()
       }
       let deps = getIn(ver, [type], {last: {}})
-      if (type !== 'dependencies') {
+      if (type === 'peerDependencies' || type === 'publicDependencies') {
         // public deps - mark them as such
         // use symbol so that we don't mix the public flag with versions
         Object.keys(deps).forEach(k => deps[k][Symbol.for('public')] = true)
@@ -256,8 +256,9 @@ export function nodeFactory(name, isRoot = false) {
       return csp.go(function*() {
         console.assert(self.status === 'version-done', 'Dependencies should be resolved right after version')
         self.status = 'private-dependencies-start'
-        // we assume no overlap in private/public/peer deps, otherwise public > peer > private
-        const deps = Object.assign(yield getDeps('dependencies'), yield getDeps('peerDependencies'), yield getDeps('publicDependencies'))
+        // installing devDeps only for root package
+        // we assume no overlap in private/public/peer deps, otherwise public > peer > dev > private
+        const deps = Object.assign(yield getDeps('dependencies'), isRoot ? yield getDeps('devDependencies') : {}, yield getDeps('peerDependencies'), yield getDeps('publicDependencies'))
         const dependencyNodes = yield cspAll(map(Object.keys(deps), pkgName => resolveNode(pkgName, deps[pkgName])))
         for (let dn of dependencyNodes) {
           self.addDependency(self.dependencies, dependency(deps[dn.name], dn, deps[Symbol.for('public')]))
@@ -343,20 +344,23 @@ export function nodeFactory(name, isRoot = false) {
     },
 
     // TODO - separate download and install into different worker groups?
+    // TODO - export bin files (according to documentation) to .bin as symlinks
     downloadAndInstall: (rootPath) => {
       return csp.go(function*() {
-        yield cspy(
-          mkdirp,
-          `${rootPath}/_tmp`
-        )
+        if (isRoot) {
+          self.status = 'installed'
+          self.installPath = rootPath
+        }
+        yield cspy(mkdirp, `${rootPath}/tmp_modules`)
+        yield cspy(mkdirp, `${rootPath}/node_modules/vpm_modules`)
         let targetUrl = yield getTarballUrl()
         let tempDir = Math.random().toString(36).substring(8)
-        let tempPath = `${rootPath}/vpm_modules/_${self.name}${self.version}${tempDir}`
-        let targetPath = `${rootPath}/vpm_modules/${self.name}${self.version}`
+        let tempPath = `${rootPath}/tmp_modules/${self.name}${self.version}${tempDir}`
+        let targetPath = `${rootPath}/node_modules/vpm_modules/${self.name}${self.version}`
         let ret = yield cspy(
           extractTarballDownload,
           targetUrl,
-          `${rootPath}/_tmp/${targetUrl.split('/').pop()}`,
+          `${rootPath}/tmp_modules/${targetUrl.split('/').pop()}`,
           tempPath,
           {}
         )
@@ -375,6 +379,28 @@ export function nodeFactory(name, isRoot = false) {
         }
         self.status = 'installed'
         self.installPath = targetPath
+      })
+    },
+
+    symlink: (rootPath) => {
+      return csp.go(function*() {
+        let flatDeps = flattenDependencies(self.dependencies)
+        if (flatDeps.length === 0) return
+        yield cspy(mkdirp, `${self.installPath}/node_modules`)
+        //TODO multiple versions on same level
+        for (let dep of flatDeps) {
+          if (typeof dep.resolvedIn.installPath !== 'string') {
+            // TODO maybe look for the real problem elsewhere ? though this was probably because of tests
+            console.log(`Error - ${dep.resolvedIn.name} not installed, try one more time..`)
+            yield dep.resolvedIn.downloadAndInstall(rootPath)
+          }
+          yield cspy(
+            fs.symlink,
+            dep.resolvedIn.installPath,
+            `${self.installPath}/node_modules/${dep.resolvedIn.name}`,
+            'dir'
+          )
+        }
       })
     },
 
