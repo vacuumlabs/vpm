@@ -11,17 +11,17 @@ import {
 // last is used when access fails at last step
 // any is used when access fails at any step
 
-export function getIn(state, path, {last, any} = {}) {
+export function getIn(state, path, fallbacks = {}) {
   checkValidPath(path)
   let value = state
   for (let i = 0; i < path.length; i++) {
     if (has(value, path[i])) {
       value = value[path[i]]
     } else {
-      if (i === path.length - 1 && last !== undefined) {
-        return last
-      } else if (any !== undefined) {
-        return any
+      if (i === path.length - 1 && has(fallbacks, 'last')) {
+        return fallbacks['last']
+      } else if (has(fallbacks, 'any')) {
+        return fallbacks['any']
       } else {
         throwError('getIn', state, path.slice(0, i + 1), value)
       }

@@ -68,6 +68,16 @@ describe('Deep accessors', function() {
     expect(x).to.equal(8)
   })
 
+  it('should get default even when it is set as undefined', () => {
+    let state = createState()
+    let x = 8
+    let y = 8
+    x = getIn(state, ['arr', 8, 'nothing'], {any: undefined})
+    y = getIn(state, ['first', 'second', 'fourth'], {last: undefined})
+    expect(x).to.equal(undefined)
+    expect(y).to.equal(undefined)
+  })
+
   it('should thow when path is not na array', () => {
     expect(getIn.bind(null, {}, {foo: 'bar'}))
       .to.throw(/Expected path to be non-empty array, got: \[object Object\]/)
