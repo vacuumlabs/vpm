@@ -1,6 +1,7 @@
 import csp from 'js-csp'
 import {cloneDeep} from 'lodash'
 const fs = require('fs')
+const domain = require('domain')
 
 // patch csp with a peek method: obtain a value from channel without removing it
 csp.peek = function(ch) {
@@ -40,7 +41,6 @@ export function cspy(fn, ...args) {
 }
 
 // cspy when data are returned in callback
-// TODO use this as default cspy and handle when no data are returned in callback
 export function cspyData(fn, ...args) {
   let ch = csp.chan()
   fn(...args, (err, data) => {
@@ -61,6 +61,39 @@ export function cspStat(path, lstat = false) {
     ch.close()
   })
   return ch
+}
+
+// TODO? this currently isn't the most universal function ever,
+// but it solves the problem with erroring streams in downloadAndInstall
+// (which was the reason for writing it in the first place)
+// runs the function in a domain, yields object with error if any happen
+export function cspDomain(generator, ...args) {
+  let ch = csp.chan()
+  let d = domain.create()
+  d.on('error', (e) => {
+    console.log('!!!!!!!!!!!!!!!!!!!ERROR HAPPENED')
+    csp.putAsync(ch, {error: e})
+    ch.close()
+  })
+  d.run(() => {
+    csp.takeAsync(csp.go(generator, args), (val) => {
+      csp.putAsync(ch, {result: val || true})
+      ch.close()
+    })
+  })
+  return ch
+}
+
+export function cspCopyFile(from, to) {
+  let ch = csp.chan()
+  fs.createReadStream(from).pipe(
+    fs.createWriteStream(to).on('finish', () => ch.close())
+  )
+  return ch
+}
+
+export function cspDownloadAndExtractTarball(url, to) {
+  // TODO
 }
 
 // based on getPackageInfo used in pkg_registry

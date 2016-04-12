@@ -3,13 +3,14 @@ const semverCmp = require('semver-compare')
 const mkdirp = require('mkdirp')
 const fs = require('fs')
 const rimraf = require('rimraf')
-import {satisfies, rcompare} from 'semver'
+import {satisfies, rcompare, validRange as semverValid} from 'semver'
 import {map, filter, seq} from 'transducers.js'
-import {set, get, sample, random, isEmpty} from 'lodash'
-import {cspAll, cspy, cspStat, cspyData} from './lib/csp_utils'
+import {set, sample, random, isEmpty} from 'lodash'
+import {cspAll, cspy, cspStat, cspyData, cspDomain} from './lib/csp_utils'
 import {getIn} from './lib/state_utils'
 import {getPackageInfo} from './pkg_registry'
 import {extractTarballDownload} from 'tarball-extract'
+import {isUri} from 'valid-url'
 
 /* -- comment section --
 
@@ -78,7 +79,7 @@ export function mutateIntoConsistent(root) {
 export function resolveRootNode(rootPath) {
   return csp.go(function*() {
     let pkg = JSON.parse(yield cspyData(fs.readFile, `${rootPath}/package.json`))
-    if (!pkg) {
+    if (isEmpty(pkg)) {
       throw new Error(`package.json not found in ${rootPath}`)
     }
     if (!pkg.version) pkg.version = '0.0.0'
@@ -115,7 +116,7 @@ export function resolveNode(name, semver = '*') {
         //console.log(`${version} does not satisfy ${semver}`)
       }
     }
-    //console.log(`${name}${semver} resolved ${node.version} not matched in ${Object.keys(nr)}`)
+    console.log(`${name}${semver} resolved into new version ${node.version} not matched in [${Object.keys(nr)}]`)
     nodeRegistry[name][node.version] = node
     yield node.resolveDependencies()
     node.crawlAndCollectSuccessorDeps()
@@ -196,13 +197,21 @@ export function nodeFactory(name, parsedPackage, directTarballUrl = undefined) {
         {any: {}}
       )
       let deps = Object.assign({}, regitryPkgDeps, directPkgDeps)
-      Object.keys(deps).forEach(k => deps[k] = {semver: deps[k]})
+      Object.keys(deps).forEach(k => {
+        if (semverValid(deps[k])) {
+          deps[k] = {semver: deps[k]}
+        } else if (isUri(deps[k])) {
+          deps[k] = {url: deps[k]}
+        } else {
+          throw new Error(`Invalid dependency value ${deps[k]} - currently only semver or link to archive are supported`)
+        }
+      })
       if (type === 'peerDependencies' || type === 'publicDependencies') {
         // public deps - mark them as such
         // use symbol so that we don't mix the public flag with versions
         Object.keys(deps).forEach(k => {
           deps[k][Symbol.for('public')] = true
-          console.log(deps[k])
+          console.log(`PUBLIC >> ${k}`)
         })
       }
       return deps
@@ -259,6 +268,15 @@ export function nodeFactory(name, parsedPackage, directTarballUrl = undefined) {
     return ret
   }
 
+  function createGetPkgFunction() {
+    if (parsedPackage) return () => csp.go(function*() {return parsedPackage})
+    if (directTarballUrl) {
+
+      return () => csp.go(function*() {return parsedPackage})
+    }
+    return getter.bind(null, name)
+  }
+
   self = {
     name: name,
     version: getIn(parsedPackage, ['version'], {any: false}) || undefined,
@@ -274,13 +292,9 @@ export function nodeFactory(name, parsedPackage, directTarballUrl = undefined) {
       conflictingDeps: {}
     },
     // TODO this is for non-registry packages, referenced directly by tarball
-    directTarball: undefined,
+    directTarball: directTarballUrl,
     // TODO this is ugly, done so that we can keep yielding getPkg elsewhere in code
-    getPkg: parsedPackage ?
-      () => csp.go(function*() {
-        return parsedPackage
-      }) :
-      getter.bind(null, name),
+    getPkg: createGetPkgFunction(),
 
     test: () => {
       return csp.go(function*() {
@@ -438,25 +452,36 @@ export function nodeFactory(name, parsedPackage, directTarballUrl = undefined) {
         let tempDir = Math.random().toString(36).substring(8)
         let tempPath = `${rootPath}/tmp_modules/${self.name}${self.version}${tempDir}`
         let targetPath = `${rootPath}/node_modules/vpm_modules/${self.name}${self.version}`
-        let ret = yield cspy(
-          extractTarballDownload,
-          targetUrl,
-          `${rootPath}/tmp_modules/${targetUrl.split('/').pop()}`,
-          tempPath,
-          {}
-        )
-        if (ret !== csp.CLOSED) {
-          console.log(`Error while installing ${self.name}${self.version}`)
-          console.log(ret)
-          return ret
+        let fnForDomain = function*() {
+          yield cspy(rimraf, targetPath)
+          let ret = yield cspy(
+            extractTarballDownload,
+            targetUrl,
+            `${rootPath}/tmp_modules/${targetUrl.split('/').pop()}`,
+            tempPath,
+            {}
+          )
+          if (ret !== csp.CLOSED) {
+            console.log('Error happended, will throw !!!!!!!!!!!!!!!!!!')
+            throw ret
+          }
+          // tar may have it's content in 'package' subdirectory
+          // TODO error handling ? TODO subdirectory might not be named 'package'
+          if ((yield cspStat(`${tempPath}/package`)).isDirectory) {
+            yield cspy(fs.rename, `${tempPath}/package`, targetPath)
+            yield cspy(rimraf, tempPath)
+          } else {
+            yield cspy(fs.rename, tempPath, targetPath)
+          }
         }
-        // tar may have it's content in 'package' subdirectory
-        // TODO error handling ? TODO subdirectory might not be named 'package'
-        if ((yield cspStat(`${tempPath}/package`)).isDirectory) {
-          yield cspy(fs.rename, `${tempPath}/package`, targetPath)
+        // for max. numTries, catch system errors and retry
+        let ret
+        let errCount = 0
+        while ((ret = getIn(yield cspDomain(fnForDomain, []), ['error'], {last: false}))) {
+          console.log(ret)
+          console.log(`Error during download/install of ${targetUrl}`)
+          console.log(`Error count: ${++errCount}`)
           yield cspy(rimraf, tempPath)
-        } else {
-          yield cspy(fs.rename, tempPath, targetPath)
         }
         self.status = 'installed'
         self.installPath = targetPath

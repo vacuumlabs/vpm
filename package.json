@@ -49,6 +49,7 @@
     "semver-resolves": "^1.0.0",
     "tar-fs": "^1.9.0",
     "tarball-extract": "0.0.3",
-    "transducers.js": "~0.3.2"
+    "transducers.js": "~0.3.2",
+    "valid-url": "^1.0.9"
   }
 }
