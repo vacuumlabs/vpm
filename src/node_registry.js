@@ -6,10 +6,9 @@ const rimraf = require('rimraf')
 import {satisfies, rcompare, validRange as semverValid} from 'semver'
 import {map, filter, seq} from 'transducers.js'
 import {set, sample, random, isEmpty} from 'lodash'
-import {cspAll, cspy, cspStat, cspyData, cspDomain} from './lib/csp_utils'
+import {cspAll, cspy, cspStat, cspyData, cspDownloadAndExtractTarball} from './lib/csp_utils'
 import {getIn} from './lib/state_utils'
 import {getPackageInfo} from './pkg_registry'
-import {extractTarballDownload} from 'tarball-extract'
 import {isUri} from 'valid-url'
 
 /* -- comment section --
@@ -452,36 +451,25 @@ export function nodeFactory(name, parsedPackage, directTarballUrl = undefined) {
         let tempDir = Math.random().toString(36).substring(8)
         let tempPath = `${rootPath}/tmp_modules/${self.name}${self.version}${tempDir}`
         let targetPath = `${rootPath}/node_modules/vpm_modules/${self.name}${self.version}`
-        let fnForDomain = function*() {
-          yield cspy(rimraf, targetPath)
-          let ret = yield cspy(
-            extractTarballDownload,
-            targetUrl,
-            `${rootPath}/tmp_modules/${targetUrl.split('/').pop()}`,
-            tempPath,
-            {}
-          )
-          if (ret !== csp.CLOSED) {
-            console.log('Error happended, will throw !!!!!!!!!!!!!!!!!!')
-            throw ret
-          }
-          // tar may have it's content in 'package' subdirectory
-          // TODO error handling ? TODO subdirectory might not be named 'package'
-          if ((yield cspStat(`${tempPath}/package`)).isDirectory) {
-            yield cspy(fs.rename, `${tempPath}/package`, targetPath)
-            yield cspy(rimraf, tempPath)
-          } else {
-            yield cspy(fs.rename, tempPath, targetPath)
-          }
-        }
         // for max. numTries, catch system errors and retry
         let ret
         let errCount = 0
-        while ((ret = getIn(yield cspDomain(fnForDomain, []), ['error'], {last: false}))) {
+        yield cspy(rimraf, tempPath)
+        yield cspy(mkdirp, tempPath)
+        while ((ret = yield cspDownloadAndExtractTarball(targetUrl, tempPath)) instanceof Error) {
           console.log(ret)
           console.log(`Error during download/install of ${targetUrl}`)
           console.log(`Error count: ${++errCount}`)
           yield cspy(rimraf, tempPath)
+          yield cspy(mkdirp, tempPath)
+        }
+        // tar may have it's content in 'package' subdirectory
+        // TODO error handling ? TODO subdirectory might not be named 'package'
+        if ((yield cspStat(`${tempPath}/package`)).isDirectory) {
+          yield cspy(fs.rename, `${tempPath}/package`, targetPath)
+          yield cspy(rimraf, tempPath)
+        } else {
+          yield cspy(fs.rename, tempPath, targetPath)
         }
         self.status = 'installed'
         self.installPath = targetPath

@@ -17,13 +17,12 @@ describe('Main', function() {
     csp.takeAsync(csp.go(function*() {
       yield cspy(rimraf, targetPath)
       yield cspy(mkdirp, targetPath)
-      //fs.createReadStream('package.json').pipe(fs.createWriteStream(`${targetPath}/package.json`))
     }), () => done())
   })
 
   it('should install simple peer-dep example', function(done) {
     csp.takeAsync(csp.go(function*() {
-      yield cspCopyFile('./_test/firebase.json', `${targetPath}/package.json`)
+      yield cspCopyFile('./test/firebase.json', `${targetPath}/package.json`)
       yield install(targetPath)
     }), () => done())
   })
@@ -31,7 +30,8 @@ describe('Main', function() {
 /*
   it('should install itself', function(done) {
     csp.takeAsync(csp.go(function*() {
-      fs.createReadStream('package.json').pipe(fs.createWriteStream(`${targetPath}/package.json`))
+      yield cspCopyFile('./package.json', `${targetPath}/package.json`)
+      //fs.createReadStream('package.json').pipe(fs.createWriteStream(`${targetPath}/package.json`))
       yield install(targetPath)
     }), () => done())
   })

@@ -10,7 +10,7 @@ import {
   getConflictingNodes,
 } from '../src/node_registry.js'
 import {installTreeInto} from '../src/install'
-import {cspAll, spawnWorkers, cspy, cspStat} from '../src/lib/csp_utils'
+import {cspAll, spawnWorkers, cspy, cspStat, cspDownloadAndExtractTarball} from '../src/lib/csp_utils'
 import csp from 'js-csp'
 const rimraf = require('rimraf')
 const mkdirp = require('mkdirp')
@@ -24,6 +24,13 @@ describe('Install', function() {
     csp.takeAsync(csp.go(function*() {
       yield cspy(rimraf, targetPath)
       yield cspy(mkdirp, targetPath)
+    }), () => done())
+  })
+
+  it('should download and extract tarball', function(done) {
+    csp.takeAsync(csp.go(function*() {
+      yield cspDownloadAndExtractTarball('https://registry.npmjs.org/lodash/-/lodash-0.2.0.tgz', targetPath)
+      expect((yield cspStat(`${targetPath}/package`)).isDirectory()).to.equal(true)
     }), () => done())
   })
 

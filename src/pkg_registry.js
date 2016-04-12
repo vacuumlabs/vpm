@@ -106,6 +106,13 @@ export function getPackageInfo(nrConnections = 20) {
     while (true) {
       let [pkg, resChan] = yield csp.take(ch)
       let res = yield csp.take(_getPackageInfo(pkg))
+      let errCount = 0
+      while(res instanceof Error) {
+        console.log(res)
+        console.log(`Error while obtaining packageInfo for ${pkg}`)
+        console.log(`Error count: ${++errCount}`)
+        res = yield csp.take(_getPackageInfo(pkg))
+      }
       yield csp.put(resChan, res)
     }
   }

@@ -2,6 +2,9 @@ import csp from 'js-csp'
 import {cloneDeep} from 'lodash'
 const fs = require('fs')
 const domain = require('domain')
+const request = require('request')
+const tar = require('tar')
+const gunzip = require('gunzip-maybe')
 
 // patch csp with a peek method: obtain a value from channel without removing it
 csp.peek = function(ch) {
@@ -63,10 +66,7 @@ export function cspStat(path, lstat = false) {
   return ch
 }
 
-// TODO? this currently isn't the most universal function ever,
-// but it solves the problem with erroring streams in downloadAndInstall
-// (which was the reason for writing it in the first place)
-// runs the function in a domain, yields object with error if any happen
+// this kind-of works, untested and abandoned for now
 export function cspDomain(generator, ...args) {
   let ch = csp.chan()
   let d = domain.create()
@@ -93,7 +93,19 @@ export function cspCopyFile(from, to) {
 }
 
 export function cspDownloadAndExtractTarball(url, to) {
-  // TODO
+  let ch = csp.chan()
+  let extractor = tar.Extract({path: to})
+    .on('error', (e) => {csp.offer(ch, e)})
+    .on('end', () => {
+      csp.offer(ch, true)
+      ch.close
+    })
+  request.get(url)
+    .on('error', (e) => {csp.offer(ch, e)})
+    .pipe(gunzip())
+    .on('error', (e) => {csp.offer(ch, e)})
+    .pipe(extractor)
+  return ch
 }
 
 // based on getPackageInfo used in pkg_registry
