@@ -1,7 +1,20 @@
 import http from 'http'
 import csp from 'js-csp'
+import {isEqual, isEmpty} from 'lodash'
+import {rcompare, satisfies} from 'semver'
 
 // TODO cleanup
+
+/*
+TODO each package should have object on Symbol.for('parsedInfo'):
+{
+  reasonable_ver => {
+    dep,devDep,peerDep,pubDep
+    tarball // currently might get downloaded twice, but nvm for now
+  }
+}
+
+*/
 
 const registry = {}
 
@@ -47,27 +60,38 @@ export function cspHttpGet(options) {
 
 // returns channel containg info about single package
 export function _getPackageInfo(pkg) {
-  let versionGroups = undefined
-  let directPubs = undefined
-  const packageFunctions = {
-    getVersionGroups: () => {
-      if (versionGroups !== undefined) return versionGroups
-      //TODO CONTINUE HERE!
-      return versionGroups
-    },
-    getVerionUrl: (verion) => {
-      // TODO
+
+  // returns versions satisfying semver that change dependencies
+  function availableMutations(pkgObj, previousVersion, semver) {
+    let ret = []
+    let sortedVersions = Object.keys(pkgObj.versions).sort(rcompare)
+    for (let ver of sortedVersions) {
+      if (!satisfies(ver, semver)) continue
+      // TODO optional dependencies ?
+      for (let type of ['dependencies', 'devDependencies', 'peerDependencies', 'publicDependencies']) {
+        if (!isEqual(pkgObj.versions[ver][type], pkgObj.versions[ver][type])) {
+          // just to be sure, ignore cases where deps are empty/undefined in both versions
+          if ((pkgObj.versions[ver][type] === undefined || (isEmpty(pkgObj.versions[ver][type]))) && (pkgObj.versions[previousVersion][type] === undefined || (isEmpty(pkgObj.versions[previousVersion][type])))) continue
+          ret.push(ver)
+        }
+      }
     }
+    return ret
   }
+
   return csp.go(function*() {
     let options = {
       host: 'registry.npmjs.org',
       path: `/${pkg}`
     }
-    return Object.assign(
-      Object.create(packageFunctions),
-      JSON.parse(yield csp.take(cspHttpGet(options)))
-    )
+    let pkgObj = JSON.parse(yield csp.take(cspHttpGet(options)))
+    if (Object.keys(pkgObj).length === 0) {
+      // pkg not found, TODO try find in 'custom' registry for testing ?
+      // we'll need to create and get packages with conflicting public deps
+      throw new Error('Package not found')
+    }
+    pkgObj.getAvailableMutations = availableMutations.bind(null, pkgObj)
+    return pkgObj
   })
 }
 

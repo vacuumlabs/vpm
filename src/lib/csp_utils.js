@@ -39,6 +39,18 @@ export function cspy(fn, ...args) {
   return ch
 }
 
+// cspy when data are returned in callback
+// TODO use this as default cspy and handle when no data are returned in callback
+export function cspyData(fn, ...args) {
+  let ch = csp.chan()
+  fn(...args, (err, data) => {
+    if (err) throw err
+    csp.putAsync(ch, data)
+    ch.close()
+  })
+  return ch
+}
+
 // fs.stat csp version
 export function cspStat(path, lstat = false) {
   let ch = csp.chan()
