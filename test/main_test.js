@@ -27,7 +27,6 @@ describe('Main', function() {
     }), () => done())
   })
 
-/*
   it('should install itself', function(done) {
     csp.takeAsync(csp.go(function*() {
       yield cspCopyFile('./package.json', `${targetPath}/package.json`)
@@ -35,6 +34,5 @@ describe('Main', function() {
       yield install(targetPath)
     }), () => done())
   })
-*/
 
 })

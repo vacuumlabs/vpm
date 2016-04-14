@@ -30,6 +30,28 @@ export function getIn(state, path, fallbacks = {}) {
   return value
 }
 
+export function serialGetIn(state, paths, fallbacks = []) {
+  for (let i = 0; i < paths.length; i++) {
+    try {
+      let fallback = fallbacks.length > i ? fallbacks[i] : {}
+      return getIn(state, paths[i], fallback)
+    } catch (e) {
+      if (!(e instanceof ReferenceError)) {
+        throw e
+      }
+    }
+  }
+  throw new ReferenceError(`
+    SerialGetIn failed on
+
+    ${state}
+
+    getting
+
+    ${paths}
+  `)
+}
+
 export function updateIn(state, path, fn, force = false) {
   checkValidPath(path, 1)
   return recursiveUpdate('updateIn', state, state, path, 0, fn, force)
@@ -73,9 +95,13 @@ function checkValidPath(path, minLength = 0) {
 }
 
 function throwError(taskName, state, pathSegment, value) {
-  console.error(`${taskName} failed - can not find
-    ${pathSegment[pathSegment.length - 1]} in ${value}`) // eslint-disable-line no-console
-  console.error('State: ', state) // eslint-disable-line no-console
-  console.error('Path (until failure): ', pathSegment) // eslint-disable-line no-console
-  throw new Error(`Can not find ${pathSegment[pathSegment.length - 1]} in ${value}`)
+  throw new ReferenceError(`
+    ${taskName} can not find ${pathSegment[pathSegment.length - 1]}
+
+    in ${value}
+
+    of obj ${state}
+
+    path until failure ${pathSegment}
+  `)
 }

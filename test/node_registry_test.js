@@ -44,7 +44,7 @@ describe('Node registry', function() {
   it('should resolve node version', function(done) {
     csp.takeAsync(csp.go(function*() {
       let node = nodeFactory('babel-core')
-      yield node.resolveVersion()
+      yield node.resolvePackage()
       console.log(node.version)
       expect(node.version).to.not.equal(undefined)
     }), () => done())
