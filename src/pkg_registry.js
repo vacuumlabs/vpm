@@ -2,6 +2,8 @@ import http from 'http'
 import csp from 'js-csp'
 import {isEqual, isEmpty} from 'lodash'
 import {rcompare, satisfies} from 'semver'
+import {isUri} from 'valid-url'
+import {cspDownloadAndExtractTarball, installUrl, cspParseFile, cspHttpGet} from './lib/csp_utils'
 
 // TODO cleanup
 
@@ -17,46 +19,6 @@ TODO each package should have object on Symbol.for('parsedInfo'):
 */
 
 const registry = {}
-
-// generic GET which returns csp-channel
-// TODO: rewrite this in a more simple form:
-//   while (not success) {
-//     yield try-http-request
-//   }
-//   return result
-export function cspHttpGet(options) {
-  let reschan = csp.chan(1)
-
-  function processResponse(response) {
-    let str = []
-    //another chunk of data has been recieved, so append it to `str`
-    response.on('data', function(chunk) {
-      str.push(chunk)
-    })
-    //the whole response has been recieved, so we just print it out here
-    response.on('end', function() {
-      csp.putAsync(reschan, str.join(''))
-      reschan.close()
-      return reschan
-    })
-  }
-
-  // for now just redo the request on connection refuse,
-  // otherwise print and ignore
-  function requestAndHandleErrors(options, callback) {
-    http.request(options, callback).on('error', function(err) {
-      console.log('http error')
-      console.log(err)
-      if (err.code === 'ECONNREFUSED') {
-        console.log('Connection to registry refused, re-trying (Ctr+C to stop...)')
-        requestAndHandleErrors(options, callback)
-      }
-    }).end()
-  }
-
-  requestAndHandleErrors(options, processResponse)
-  return reschan
-}
 
 // returns channel containg info about single package
 export function _getPackageInfo(pkg) {
@@ -80,17 +42,28 @@ export function _getPackageInfo(pkg) {
   }
 
   return csp.go(function*() {
-    let options = {
-      host: 'registry.npmjs.org',
-      path: `/${pkg}`
+    let jsonString
+    if (isUri(pkg)) {
+      // install into random temp directory
+      // TODO don't install multiple times (?)
+      // TODO error handling
+      let randDir = Math.random().toString(36).substring(8)
+      yield installUrl(pkg, '/tmp', '', randDir)
+      jsonString = yield cspParseFile(`/tmp/${randDir}/package.json`)
+    } else {
+      jsonString = yield csp.take(cspHttpGet(`http://registry.npmjs.org/${pkg}`))
     }
-    let pkgObj = JSON.parse(yield csp.take(cspHttpGet(options)))
+    let pkgObj = JSON.parse(jsonString)
+    if (isEmpty(pkgObj)) {
+      throw new Error(`Unable to parse or download ${pkg}`)
+    }
     if (Object.keys(pkgObj).length === 0) {
       // pkg not found, TODO try find in 'custom' registry for testing ?
       // we'll need to create and get packages with conflicting public deps
       throw new Error('Package not found')
     }
     pkgObj.getAvailableMutations = availableMutations.bind(null, pkgObj)
+    if (isUri(pkg)) pkgObj.tarball = pkg
     return pkgObj
   })
 }
@@ -106,6 +79,14 @@ export function getPackageInfo(nrConnections = 20) {
     while (true) {
       let [pkg, resChan] = yield csp.take(ch)
       let res = yield csp.take(_getPackageInfo(pkg))
+      let errCount = 0
+      // error handling
+      while(res instanceof Error) {
+        console.log(res)
+        console.log(`Error while obtaining packageInfo for ${pkg}`)
+        console.log(`Error count: ${++errCount}`)
+        res = yield csp.take(_getPackageInfo(pkg))
+      }
       yield csp.put(resChan, res)
     }
   }
@@ -114,7 +95,7 @@ export function getPackageInfo(nrConnections = 20) {
     csp.go(spawnWorker)
   }
 
-  // pkfInfoGetter
+  // pkfInfoGetter - pkg is either a name or an url to tarball
   return (pkg) => {
     return csp.go(function*() {
       if (pkg in registry) {
@@ -122,7 +103,7 @@ export function getPackageInfo(nrConnections = 20) {
           return yield csp.peek(registry[pkg])
         }
       }
-      // resChan has to have buffer of a size 1 to be peek-able
+      // resChan has to have buffer of a size 1 to be peekable
       let resChan = csp.chan(1)
       registry[pkg] = resChan
       yield csp.put(ch, [pkg, resChan])

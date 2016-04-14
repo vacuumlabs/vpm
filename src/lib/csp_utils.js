@@ -1,6 +1,13 @@
 import csp from 'js-csp'
 import {cloneDeep} from 'lodash'
 const fs = require('fs')
+const domain = require('domain')
+const request = require('request')
+const tar = require('tar')
+const gunzip = require('gunzip-maybe')
+const rimraf = require('rimraf')
+const mkdirp = require('mkdirp')
+import through from 'through'
 
 // patch csp with a peek method: obtain a value from channel without removing it
 csp.peek = function(ch) {
@@ -40,7 +47,6 @@ export function cspy(fn, ...args) {
 }
 
 // cspy when data are returned in callback
-// TODO use this as default cspy and handle when no data are returned in callback
 export function cspyData(fn, ...args) {
   let ch = csp.chan()
   fn(...args, (err, data) => {
@@ -62,6 +68,126 @@ export function cspStat(path, lstat = false) {
   })
   return ch
 }
+
+// untested and abandoned for now
+export function cspDomain(generator, ...args) {
+  let ch = csp.chan()
+  let d = domain.create()
+  d.on('error', (e) => {
+    console.log('!!!!!!!!!!!!!!!!!!!ERROR HAPPENED')
+    csp.putAsync(ch, {error: e})
+    ch.close()
+  })
+  d.run(() => {
+    csp.takeAsync(csp.go(generator, args), (val) => {
+      csp.putAsync(ch, {result: val || true})
+      ch.close()
+    })
+  })
+  return ch
+}
+
+export function cspCopyFile(from, to) {
+  let ch = csp.chan()
+  fs.createReadStream(from).pipe(
+    fs.createWriteStream(to).on('finish', () => ch.close())
+  )
+  return ch
+}
+
+export function cspDownloadAndExtractTarball(url, to) {
+  let ch = csp.chan()
+  let extractor = tar.Extract({path: to})
+    .on('error', (e) => {csp.offer(ch, e)})
+    .on('end', () => {
+      csp.offer(ch, true)
+      ch.close
+    })
+  request.get(url)
+    .on('error', (e) => {csp.offer(ch, e)})
+    .pipe(gunzip())
+    .on('error', (e) => {csp.offer(ch, e)})
+    .pipe(extractor)
+  return ch
+}
+
+export function cspHttpGet(url) {
+  return retryCspStreamFunction(cspyDataStream, [request.get(url)])
+}
+
+function retryCspStreamFunction(fn, args, onError, errorArgs) {
+  return csp.go(function*() {
+    let ret
+    let errCount = 0
+    while ((ret = yield fn(...args)) instanceof Error) {
+      console.log(ret)
+      console.log(`Error during ${fn.name} with args ${args}`)
+      console.log(`Error count: ${++errCount}`)
+      if (typeof onError === 'function') yield onError(...errorArgs)
+    }
+    if (ret !== null) return ret // we can't return null since it === CSP.CLOSED
+  })
+}
+
+// TODO merge installPath, installDirName
+export function installUrl(targetUrl, rootPath, installPath, installDirName) {
+  return csp.go(function*() {
+    yield cspy(mkdirp, `${rootPath}/tmp_modules`)
+    yield cspy(mkdirp, `${rootPath}/${installPath}`)
+    // TODO leading/trailing slashes in paths and names should be valid and optional
+    let tempDir = Math.random().toString(36).substring(8)
+    let tempPath = `${rootPath}/tmp_modules/${installDirName}${tempDir}`
+    let targetPath = `${rootPath}${installPath}/${installDirName}`
+    // for max. numTries, catch system errors and retry
+    const recreateTmpDir = function*() {
+      yield cspy(rimraf, tempPath)
+      yield cspy(mkdirp, tempPath)
+    }
+    yield recreateTmpDir()
+    yield retryCspStreamFunction(
+      cspDownloadAndExtractTarball,
+      [targetUrl, tempPath],
+      recreateTmpDir
+    )
+    // tar may have it's content in 'package' subdirectory
+    // TODO error handling ? TODO subdirectory might not be named 'package'
+    if ((yield cspStat(`${tempPath}/package`)).isDirectory) {
+      yield cspy(fs.rename, `${tempPath}/package`, targetPath)
+      yield cspy(rimraf, tempPath)
+    } else {
+      yield cspy(fs.rename, tempPath, targetPath)
+    }
+  })
+}
+
+// returns contents of any stream that emits 'data' and 'end' events as a single string
+export function cspyDataStream(stream) {
+  let ch = csp.chan()
+  let str = []
+  stream.on('data', (chunk) => {
+    str.push(chunk)
+  })
+  stream.on('error', (e) => {
+    csp.offer(ch, e)
+    ch.close()
+  })
+  stream.on('end', () => {
+    csp.offer(ch, str.join(''))
+    ch.close()
+  })
+  return ch
+}
+
+export function cspParseFile(path) {
+  // ignoring 'open' event, should be fine
+  return retryCspStreamFunction(cspyDataStream, [fs.createReadStream(path)])
+}
+
+/*
+readStream.on('open', () => {
+    csp.operations.pipe(cspyDataStream(readStream))
+  })
+*/
 
 // based on getPackageInfo used in pkg_registry
 // returns getter that accepts function returning csp channel

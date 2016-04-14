@@ -1,25 +1,12 @@
 import {expect} from 'chai'
 import 'co-mocha'
-import {getPackageInfo, _getPackageInfo, cspHttpGet} from '../src/pkg_registry.js'
+import {getPackageInfo, _getPackageInfo} from '../src/pkg_registry.js'
 import csp from 'js-csp'
 
 describe('Package registry', function() {
   this.timeout(32000)
 
   const getter = getPackageInfo()
-
-  it('should do something with invalid link?', function(done) {
-    csp.takeAsync(csp.go(function*() {
-      let pkg = 'wleehehehehehehe'
-      let options = {
-        host: 'registry.npmjs.org',
-        path: `/${pkg}`
-      }
-      let ret = yield csp.take(cspHttpGet(options))
-      let pkgObj = JSON.parse(ret)
-      expect(pkgObj).to.deep.equal({})
-    }), () => done())
-  })
 
   it('should peek', function(done) {
     let c = csp.chan(1)

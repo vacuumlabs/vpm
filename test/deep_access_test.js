@@ -22,7 +22,7 @@ describe('Deep accessors', function() {
   it('should throw when setting data along nonexistent path without force', () => {
     let state = createState()
     expect(setIn.bind(null, state, ['first', 'fifth', 'second'], 47))
-      .to.throw(/Can not find fifth in \[object Object\]/)
+      .to.throw()
   })
 
   it('should set data along existing path', () => {
@@ -53,7 +53,7 @@ describe('Deep accessors', function() {
 
   it('should fail get when data does not exist', () => {
     let state = createState()
-    expect(getIn.bind(null, state, ['arr', 2, 'nothing'])).to.throw(/Can not find nothing in \[object Object\]/)
+    expect(getIn.bind(null, state, ['arr', 2, 'nothing'])).to.throw()
   })
 
   it('should get default when it fails on last step', () => {

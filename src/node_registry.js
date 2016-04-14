@@ -3,13 +3,13 @@ const semverCmp = require('semver-compare')
 const mkdirp = require('mkdirp')
 const fs = require('fs')
 const rimraf = require('rimraf')
-import {satisfies, rcompare} from 'semver'
+import {satisfies, rcompare, validRange as semverValid} from 'semver'
 import {map, filter, seq} from 'transducers.js'
-import {set, get, sample, random, isEmpty} from 'lodash'
-import {cspAll, cspy, cspStat, cspyData} from './lib/csp_utils'
-import {getIn} from './lib/state_utils'
+import {set, sample, random, isEmpty} from 'lodash'
+import {cspAll, cspy, cspStat, cspParseFile, installUrl} from './lib/csp_utils'
+import {getIn, serialGetIn} from './lib/state_utils'
 import {getPackageInfo} from './pkg_registry'
-import {extractTarballDownload} from 'tarball-extract'
+import {isUri} from 'valid-url'
 
 /* -- comment section --
 
@@ -77,13 +77,8 @@ export function mutateIntoConsistent(root) {
 // expects package.json in root path
 export function resolveRootNode(rootPath) {
   return csp.go(function*() {
-    let pkg = JSON.parse(yield cspyData(fs.readFile, `${rootPath}/package.json`))
-    if (!pkg) {
-      throw new Error(`package.json not found in ${rootPath}`)
-    }
-    if (!pkg.version) pkg.version = '0.0.0'
-    let node = nodeFactory('__root__', pkg)
-    yield node.resolveVersion()
+    let node = nodeFactory('__root__')
+    yield node.resolvePackage(`${rootPath}/package.json`)
     set(nodeRegistry, ['__root__', node.version], node)
     yield node.resolveDependencies()
     node.crawlAndCollectSuccessorDeps()
@@ -93,29 +88,20 @@ export function resolveRootNode(rootPath) {
 
 // finds existing node that fits semver range, or creates a new one
 // option to ignore dependencies only for testing
-export function resolveNode(name, semver = '*') {
+export function resolveNode(name, semverOrUrl = '*') {
   return csp.go(function*() {
     let nr = getIn(nodeRegistry, [name], {any: false}) || (nodeRegistry[name] = {})
-    // try to match versions
-
-    for (let version in nr) {
-      if (satisfies(version, semver)) {
-        //console.log(`${name}${semver} ~> ${version} already in registry, continue..`)
-        return nr[version]
-      }
-    }
+    // for now create only 'local' node without adding it to registry
     let node = nodeFactory(name)
-    yield node.resolveVersion(semver)
-    //try to get satisfying version again - maybe one was resolved during the yield
+    // resolve highest available version
+    yield node.resolvePackage(semverOrUrl)
+    //try to get already satisfying version (new packages might have been added during yield)
     for (let version in nr) {
-      if (satisfies(version, semver)) {
-        //console.log(`${name}${semver} ~> ${version} already in registry, continue..`)
+      if (satisfies(version, semverOrUrl)) {
         return nr[version]
-      } else {
-        //console.log(`${version} does not satisfy ${semver}`)
       }
     }
-    //console.log(`${name}${semver} resolved ${node.version} not matched in ${Object.keys(nr)}`)
+    console.log(`${name}${semverOrUrl} resolved into new version ${node.version} not matched in [${Object.keys(nr)}]`)
     nodeRegistry[name][node.version] = node
     yield node.resolveDependencies()
     node.crawlAndCollectSuccessorDeps()
@@ -168,7 +154,7 @@ function dependency(semver, node, pub) {
 // package as an alternative to the one from npm registry
 // directTarballUrl for packages refenrenced by it - TODO
 // used for root node and for testing
-export function nodeFactory(name, parsedPackage, directTarballUrl = undefined) {
+export function nodeFactory(name) {
 
   let self
 
@@ -196,13 +182,21 @@ export function nodeFactory(name, parsedPackage, directTarballUrl = undefined) {
         {any: {}}
       )
       let deps = Object.assign({}, regitryPkgDeps, directPkgDeps)
-      Object.keys(deps).forEach(k => deps[k] = {semver: deps[k]})
+      Object.keys(deps).forEach(k => {
+        if (semverValid(deps[k])) {
+          deps[k] = {semver: deps[k]}
+        } else if (isUri(deps[k])) {
+          deps[k] = {url: deps[k]}
+        } else {
+          throw new Error(`Invalid dependency value ${deps[k]} - currently only semver or link to archive are supported`)
+        }
+      })
       if (type === 'peerDependencies' || type === 'publicDependencies') {
         // public deps - mark them as such
         // use symbol so that we don't mix the public flag with versions
         Object.keys(deps).forEach(k => {
           deps[k][Symbol.for('public')] = true
-          console.log(deps[k])
+          console.log(`PUBLIC >> ${k}`)
         })
       }
       return deps
@@ -211,18 +205,15 @@ export function nodeFactory(name, parsedPackage, directTarballUrl = undefined) {
 
   function getTarballUrl() {
     return csp.go(function*() {
+      let pkg = yield self.getPkg()
       // sometimes, the tarball link is stored under 'dist' key, bundled with shasum
-      let tarball = self.directTarball || getIn(
-        yield self.getPkg(),
-        ['versions', self.version, 'tarball'],
-        {
-          last: getIn(
-            yield self.getPkg(),
-            ['versions', self.version, 'dist', 'tarball']
-          )
-        }
+      let tarball = serialGetIn(pkg,
+        [
+          ['tarball'],
+          ['versions', self.version, 'tarball'],
+          ['versions', self.version, 'dist', 'tarball']
+        ]
       )
-      console.log(tarball)
       return tarball
     })
   }
@@ -230,7 +221,7 @@ export function nodeFactory(name, parsedPackage, directTarballUrl = undefined) {
   //check if semver is equal to any of versions (also semvers)
   function semverExists(semver, versions) {
     for (let ver of versions) {
-      if (semverCmp(semver,ver) === 0) return ver
+      if (semverCmp(semver, ver) === 0) return ver
     }
     return undefined
   }
@@ -261,7 +252,7 @@ export function nodeFactory(name, parsedPackage, directTarballUrl = undefined) {
 
   self = {
     name: name,
-    version: getIn(parsedPackage, ['version'], {any: false}) || undefined,
+    version: undefined,
     status: 'init', // never really used, remove
     installPath: undefined,
     subscribers: {},
@@ -273,14 +264,7 @@ export function nodeFactory(name, parsedPackage, directTarballUrl = undefined) {
       passedDeps: {},
       conflictingDeps: {}
     },
-    // TODO this is for non-registry packages, referenced directly by tarball
-    directTarball: undefined,
-    // TODO this is ugly, done so that we can keep yielding getPkg elsewhere in code
-    getPkg: parsedPackage ?
-      () => csp.go(function*() {
-        return parsedPackage
-      }) :
-      getter.bind(null, name),
+    getPkg: getter.bind(null, name),
 
     test: () => {
       return csp.go(function*() {
@@ -301,28 +285,40 @@ export function nodeFactory(name, parsedPackage, directTarballUrl = undefined) {
       }
     },
 
-    resolveVersion: (semver = '*') => {
+    resolvePackage: (semverOrUrl = '*') => {
       return csp.go(function*() {
         console.assert(self.status === 'init', 'Version should be resolved right after node initialization.')
-        self.status = 'version-start'
+        self.status = 'package-start'
+        if (self.name === '__root__') {
+          let pkg = JSON.parse(yield cspParseFile(semverOrUrl))
+          if (isEmpty(pkg)) {
+            throw new Error(`package.json not found in ${semverOrUrl}`)
+          }
+          self.version = pkg.version || '0.0.0'
+          self.getPkg = () => pkg
+          self.status = 'package-done'
+          return
+        }
+        self.getPkg = isUri(semverOrUrl) ? getter.bind(null, semverOrUrl) : self.getPkg
         let pkg = yield self.getPkg()
+        // TODO don't just get highest, try to match ?
         self.version =
-          pkg.version || filter(Object.keys(pkg.versions).sort(rcompare), v => satisfies(v, semver))[0]
+          pkg.version || filter(Object.keys(pkg.versions).sort(rcompare), v => satisfies(v, semverOrUrl))[0]
         console.assert(self.version !== undefined, 'No version satisfies requirements') // TODO return false and handle
-        self.status = 'version-done'
+        self.status = 'package-done'
       })
     },
 
     resolveDependencies: () => {
       return csp.go(function*() {
-        console.assert(self.status === 'version-done', 'Dependencies should be resolved right after version')
+        console.assert(self.status === 'package-done', 'Dependencies should be resolved right after version')
         self.status = 'private-dependencies-start'
         // installing devDeps only for root package
         // we assume no overlap in private/public/peer deps, otherwise public > peer > dev > private
         const deps = Object.assign(yield getDeps('dependencies'), (self.name === '__root__') ? yield getDeps('devDependencies') : {}, yield getDeps('peerDependencies'), yield getDeps('publicDependencies'))
-        const dependencyNodes = yield cspAll(map(Object.keys(deps), pkgName => resolveNode(pkgName, deps[pkgName].semver)))
+        const dependencyNodes = yield cspAll(map(Object.keys(deps), pkgName => resolveNode(pkgName, deps[pkgName].semver || deps[pkgName].url)))
         for (let dn of dependencyNodes) {
-          linkNodes(self, dn, deps[dn.name].semver, deps[dn.name][Symbol.for('public')])
+          linkNodes(self, dn, deps[dn.name].semver || dn.version, deps[dn.name][Symbol.for('public')])
         }
         self.status = 'private-dependencies-done'
       })
@@ -432,32 +428,10 @@ export function nodeFactory(name, parsedPackage, directTarballUrl = undefined) {
           self.installPath = rootPath
           return
         }
-        yield cspy(mkdirp, `${rootPath}/tmp_modules`)
-        yield cspy(mkdirp, `${rootPath}/node_modules/vpm_modules`)
+        // TODO simplify installUrl args
         let targetUrl = yield getTarballUrl()
-        let tempDir = Math.random().toString(36).substring(8)
-        let tempPath = `${rootPath}/tmp_modules/${self.name}${self.version}${tempDir}`
         let targetPath = `${rootPath}/node_modules/vpm_modules/${self.name}${self.version}`
-        let ret = yield cspy(
-          extractTarballDownload,
-          targetUrl,
-          `${rootPath}/tmp_modules/${targetUrl.split('/').pop()}`,
-          tempPath,
-          {}
-        )
-        if (ret !== csp.CLOSED) {
-          console.log(`Error while installing ${self.name}${self.version}`)
-          console.log(ret)
-          return ret
-        }
-        // tar may have it's content in 'package' subdirectory
-        // TODO error handling ? TODO subdirectory might not be named 'package'
-        if ((yield cspStat(`${tempPath}/package`)).isDirectory) {
-          yield cspy(fs.rename, `${tempPath}/package`, targetPath)
-          yield cspy(rimraf, tempPath)
-        } else {
-          yield cspy(fs.rename, tempPath, targetPath)
-        }
+        yield installUrl(targetUrl, rootPath, `/node_modules/vpm_modules`, `${self.name}${self.version}`)
         self.status = 'installed'
         self.installPath = targetPath
       })

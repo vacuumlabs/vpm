@@ -17,7 +17,7 @@ gulp.task('eslint', () => {
 })
 
 gulp.task('test', () => {
-  return gulp.src(['test/main_test.js'])
+  return gulp.src(['test/*.js'])
     .pipe(mocha({
       compilers: {js: babel}
     }))
