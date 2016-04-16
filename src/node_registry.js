@@ -5,7 +5,7 @@ const fs = require('fs')
 const rimraf = require('rimraf')
 import {satisfies, rcompare, validRange as semverValid} from 'semver'
 import {map, filter, seq} from 'transducers.js'
-import {set, sample, random, isEmpty} from 'lodash'
+import {set, sample, random, isEmpty, clone} from 'lodash'
 import {cspAll, cspy, cspStat, cspParseFile, installUrl} from './lib/csp_utils'
 import {getIn, serialGetIn} from './lib/state_utils'
 import {getPackageInfo} from './pkg_registry'
@@ -350,7 +350,8 @@ export function nodeFactory(name) {
       const newDeps = flattenDependencies(self.dependencies)
           .concat(flattenDependencies(self.successorDependencies))
           .concat(flattenDependencies(self.getPredecessorDependencies()))
-      const prevNames = new Set(Object.keys(self.checkedDependencies.passedDeps).concat(Object.keys(self.checkedDependencies.conflictingDeps)))
+          .map(d => clone(d))
+      const prevNames = new Set() //Object.keys(self.checkedDependencies.passedDeps).concat(Object.keys(self.checkedDependencies.conflictingDeps))
       for (let name in newDeps) {
         if (prevNames.has(name)) {
           if (self.checkedDependencies.passedDeps[name] !== undefined) {
@@ -362,7 +363,7 @@ export function nodeFactory(name) {
               // new conflict, move previous dependency from passedDeps to conflicting, add new conflicting
               self.checkedDependencies.conflictingDeps[name] = []
               self.checkedDependencies.conflictingDeps[name].push(self.checkedDependencies.passedDeps[name], newDeps[name])
-              self.checkedDependencies.passedDeps[name] = undefined
+              self.checkedDependencies.passedDeps[name] = undefined // TODO delete key, use 'has' to check for existence
             } else {
               // merge semvers, they resolve into at least one version
               self.checkedDependencies.passedDeps[name].semver = `${self.checkedDependencies.passedDeps[name].semver} ${newDeps[name].semver}`
@@ -463,7 +464,9 @@ export function nodeFactory(name) {
     crawlAndCheck: (updateToken = Symbol()) => {
       if (self.checkToken === updateToken) return
       self.checkToken = updateToken
-      if (!self.checkDependencies()) conflictingNodes.push(self)
+      if (!self.checkDependencies()) {
+        conflictingNodes.push(self.checkedDependencies.conflictingDeps.map(d => d.resolvedIn))
+      }
       flattenDependencies(self.dependencies).forEach(d => d.resolvedIn.crawlAndCheck(updateToken))
     },
 

@@ -47,6 +47,7 @@
     "semver": "^5.1.0",
     "semver-compare": "^1.0.0",
     "semver-resolves": "^1.0.0",
+    "tar": "^2.2.1",
     "tar-fs": "^1.9.0",
     "tarball-extract": "0.0.3",
     "transducers.js": "~0.3.2",

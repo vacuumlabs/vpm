@@ -30,16 +30,14 @@ csp.peek = function(ch) {
 
 export function cspAll(channels) {
   return csp.go(function*() {
-    //let res = yield csp.operations.into([], csp.operations.merge(channels))
+    return yield csp.operations.into([], csp.operations.merge(channels))
     let res = []
     let chanSet = new Set(channels)
     for (let i = 0; i < channels.length; i++) {
-      console.log('here ??')
-      let {channel, value} = csp.alts(Array.from(chanSet))
+      let {channel, value} = yield csp.alts(Array.from(chanSet))
       res.push(value)
       chanSet.delete(channel)
     }
-    console.log('done...')
     return res
   })
 }
@@ -130,8 +128,10 @@ function retryCspStreamFunction(fn, args, onError, errorArgs) {
     let errCount = 0
     while ((ret = yield fn(...args)) instanceof Error) {
       console.log(ret)
+      //console.log(args)
       console.log(`Error during ${fn.name} with args ${args}`)
       console.log(`Error count: ${++errCount}`)
+      errCount += 1
       if (typeof onError === 'function') yield onError(...errorArgs)
     }
     if (ret !== null) return ret // we can't return null since it === CSP.CLOSED
@@ -159,9 +159,12 @@ export function installUrl(targetUrl, rootPath, installPath, installDirName) {
       recreateTmpDir
     )
     // tar may have it's content in 'package' subdirectory
-    // TODO error handling ? TODO subdirectory might not be named 'package'
-    if ((yield cspStat(`${tempPath}/package`)).isDirectory) {
-      yield cspy(fs.rename, `${tempPath}/package`, targetPath)
+    // TODO error handling ?
+    console.log('INSTALL <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<')
+    // check the name of the directory, there should be only one, usually named 'package'
+    let lsDir = yield cspyData(fs.readdir, [tempPath])
+    if ((yield cspStat(`${tempPath}/${lsDir[0]}`)).isDirectory) {
+      yield cspy(fs.rename, `${tempPath}/${lsDir[0]}`, targetPath)
       yield cspy(rimraf, tempPath)
     } else {
       yield cspy(fs.rename, tempPath, targetPath)
