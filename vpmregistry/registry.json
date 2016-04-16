@@ -1,0 +1,44 @@
+{
+  "empty": {
+    "name":"empty",
+    "dist-tags":{"latest":"1.0.0"},
+    "versions":{
+      "1.0.0":{
+        "name":"empty",
+        "version":"1.0.0",
+        "repository":{"type":"git","url":"https://github.com/vpmtest/empty.git"},
+        "main":"",
+        "files":[],
+        "dependencies":{
+        },
+        "devDependencies":{
+        },
+        "peerDependencies":{
+        },
+        "scripts":{},
+        "tarball":"https://github.com/vpmtest/empty/archive/master.tar.gz"
+      }
+    }
+  },
+  "pkg1": {
+    "name":"pkg1",
+    "dist-tags":{"latest":"1.0.0"},
+    "versions":{
+      "1.0.0":{
+        "name":"pkg1",
+        "version":"1.0.0",
+        "repository":{"type":"git","url":"https://github.com/vpmtest/pkg1.git"},
+        "main":"",
+        "files":[],
+        "dependencies":{
+        },
+        "devDependencies":{
+        },
+        "peerDependencies":{
+        },
+        "scripts":{},
+        "tarball":"https://github.com/vpmtest/pkg1/archive/master.tar.gz"
+      }
+    }
+  }
+}

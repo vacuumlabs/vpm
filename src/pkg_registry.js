@@ -1,6 +1,6 @@
 import http from 'http'
 import csp from 'js-csp'
-import {isEqual, isEmpty} from 'lodash'
+import {isEqual, isEmpty, has} from 'lodash'
 import {rcompare, satisfies} from 'semver'
 import {isUri} from 'valid-url'
 import {cspDownloadAndExtractTarball, installUrl, cspParseFile, cspHttpGet} from './lib/csp_utils'
@@ -63,7 +63,8 @@ export function _getPackageInfo(pkg) {
       throw new Error('Package not found')
     }
     pkgObj.getAvailableMutations = availableMutations.bind(null, pkgObj)
-    if (isUri(pkg)) pkgObj.tarball = pkg
+    // excluding those with .versions only for testing, in production that shouldn't happen
+    if (isUri(pkg) && !has(pkgObj, 'versions')) pkgObj.tarball = pkg
     return pkgObj
   })
 }

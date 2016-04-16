@@ -450,6 +450,7 @@ export function nodeFactory(name) {
             yield dep.resolvedIn.downloadAndInstall(rootPath)
           }
           console.log(`linking ${dep.resolvedIn.installPath} -> ${self.installPath}/node_modules/${dep.resolvedIn.name}`)
+          // TODO if symlink with given name exist, keep link to highest version, link to all other with ver. numbers
           yield cspy(
             fs.symlink,
             dep.resolvedIn.installPath,
