@@ -19,6 +19,7 @@ export function installTreeInto(rootNode, targetPath = './', skipRoot = true) {
     targetPath = path.resolve(targetPath) // convert to absolute
     let allNodes = rootNode.crawlAndFlatten()
     yield cspAll(allNodes.map(node => installer(node.downloadAndInstall.bind(null, targetPath.replace(/\/+$/, '')))))
+    console.log('gonna link>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>')
     // sequential linking - TODO test if accessing fs for symlinks benefits from parallelization
     for (let node of allNodes) {
       yield node.symlink(targetPath.replace(/\/+$/, ''))

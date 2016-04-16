@@ -30,7 +30,16 @@ csp.peek = function(ch) {
 
 export function cspAll(channels) {
   return csp.go(function*() {
-    let res = yield csp.operations.into([], csp.operations.merge(channels))
+    //let res = yield csp.operations.into([], csp.operations.merge(channels))
+    let res = []
+    let chanSet = new Set(channels)
+    for (let i = 0; i < channels.length; i++) {
+      console.log('here ??')
+      let {channel, value} = csp.alts(Array.from(chanSet))
+      res.push(value)
+      chanSet.delete(channel)
+    }
+    console.log('done...')
     return res
   })
 }
