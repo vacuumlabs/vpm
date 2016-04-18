@@ -19,13 +19,21 @@ describe('Main', function() {
       yield cspy(mkdirp, targetPath)
     }), () => done())
   })
-
+/*
   it('should install simple peer-dep example', function(done) {
     csp.takeAsync(csp.go(function*() {
       yield cspCopyFile('./test/firebase.json', `${targetPath}/package.json`)
       yield install(targetPath)
     }), () => done())
   })
+  */
+  it('should install wordy', function(done) {
+    csp.takeAsync(csp.go(function*() {
+      yield cspCopyFile('./test/wordy.json', `${targetPath}/package.json`)
+      yield install(targetPath)
+    }), () => done())
+  })
+/*
 
   it('should install itself', function(done) {
     csp.takeAsync(csp.go(function*() {
@@ -34,5 +42,5 @@ describe('Main', function() {
       yield install(targetPath)
     }), () => done())
   })
-
+*/
 })

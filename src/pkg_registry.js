@@ -72,7 +72,7 @@ export function _getPackageInfo(pkg) {
  * `nrConnections` number of workers and will use `registry` as its cache
 **/
 
-export function getPackageInfo(nrConnections = 20) {
+export function getPackageInfo(nrConnections = 6) {
   let ch = csp.chan()
 
   function* spawnWorker() {

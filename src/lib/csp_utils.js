@@ -150,9 +150,10 @@ export function installUrl(targetUrl, rootPath, installPath, installDirName) {
       recreateTmpDir
     )
     // tar may have it's content in 'package' subdirectory
-    // TODO error handling ? TODO subdirectory might not be named 'package'
-    if ((yield cspStat(`${tempPath}/package`)).isDirectory) {
-      yield cspy(fs.rename, `${tempPath}/package`, targetPath)
+    // TODO error handling ?
+    let lsDir = yield cspyData(fs.readdir, tempPath)
+    if (lsDir.length === 1 && (yield cspStat(`${tempPath}/${lsDir[0]}`)).isDirectory) {
+      yield cspy(fs.rename, `${tempPath}/${lsDir[0]}`, targetPath)
       yield cspy(rimraf, tempPath)
     } else {
       yield cspy(fs.rename, tempPath, targetPath)
@@ -179,8 +180,12 @@ export function cspyDataStream(stream) {
 }
 
 export function cspParseFile(path) {
-  // ignoring 'open' event, should be fine
-  return retryCspStreamFunction(cspyDataStream, [fs.createReadStream(path)])
+  let readStream = fs.createReadStream(path)
+  let ch = csp.chan()
+  readStream.on('open', () => {
+    csp.operations.pipe(retryCspStreamFunction(cspyDataStream, [readStream]), ch)
+  })
+  return ch
 }
 
 /*
@@ -193,7 +198,7 @@ readStream.on('open', () => {
 // returns getter that accepts function returning csp channel
 // makes sure up to nrWorkers of these functions are run in parallel
 // may pass in a channel and pipe directly to it
-export function spawnWorkers(nrWorkers = 20, ch = csp.chan()) {
+export function spawnWorkers(nrWorkers = 6, ch = csp.chan()) {
 
   function* spawnWorker() {
     while (true) {

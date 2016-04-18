@@ -11,6 +11,12 @@ import {getIn, serialGetIn} from './lib/state_utils'
 import {getPackageInfo} from './pkg_registry'
 import {isUri} from 'valid-url'
 
+let PUBLIC_DEP_TEST = false
+
+export function enableTestMode() {
+  PUBLIC_DEP_TEST = true
+}
+
 /* -- comment section --
 
 nodeRegistry = {
@@ -54,6 +60,7 @@ export function getConflictingNodes() {
 // checks and repairs subtree starting at root
 // despite original intent, root must be tree root, otherwise it might break
 export function mutateIntoConsistent(root) {
+  //console.log('__mutate deps')
   conflictingNodes = []
   root.crawlAndCheck()
   while (conflictingNodes.length) {
@@ -90,6 +97,7 @@ export function resolveRootNode(rootPath) {
 // option to ignore dependencies only for testing
 export function resolveNode(name, semverOrUrl = '*') {
   return csp.go(function*() {
+    //console.log('__resolve node')
     let nr = getIn(nodeRegistry, [name], {any: false}) || (nodeRegistry[name] = {})
     // for now create only 'local' node without adding it to registry
     let node = nodeFactory(name)
@@ -110,6 +118,7 @@ export function resolveNode(name, semverOrUrl = '*') {
 }
 
 function removeFromDepSet(depSet, nodeObj) {
+  //console.log('__remove deps')
   for (let dep in depSet) {
     for (let version in depSet[dep]) {
       if (depSet[dep][version].resolvedIn === nodeObj) {
@@ -128,6 +137,7 @@ function removeFromDepSet(depSet, nodeObj) {
 // create dependency and assign both ways
 // semver, parent, public
 function linkNodes(parent, child, semver, pub) {
+  //console.log('__link')
   let dep = dependency(semver, child, pub)
   parent.addDependency(parent.dependencies, dep)
   child.addDependency(child.subscribers, dep)
@@ -135,6 +145,7 @@ function linkNodes(parent, child, semver, pub) {
 
 // remove from both dependencies and subscribers
 function unlinkNodes(parent, child) {
+  //console.log('__ulink')
   removeFromDepSet(parent.dependencies, child)
   removeFromDepSet(child.subscribers, parent)
 }
@@ -158,17 +169,19 @@ export function nodeFactory(name) {
 
   let self
 
-  //const versionPubFilter = filter(d => d[Symbol.for('public')])
+  //const versionPubFilter = filter(d => d['public'])
   //const depPubFilter = map(d => seq(d, versionPubFilter))
 
+  // TODO - we're no longer using symbols, make this a 'filter for public' without param
   function depFilterForSymbol(symName) {
-    const innerFilter = filter(d => d[Symbol.for(symName)])
+    const innerFilter = filter(d => d[symName])
     return map(d => seq(d, innerFilter))
   }
 
   // gets package.json format of dependencies, with symbol for public where needed
   function getDeps(type) {
     return csp.go(function*() {
+      //console.log('__get deps')
       // package downloaded from npm-registry contains all versions
       // one downloaded from github / root package has dependencies directly on itself
       let regitryPkgDeps = getIn(
@@ -191,11 +204,11 @@ export function nodeFactory(name) {
           throw new Error(`Invalid dependency value ${deps[k]} - currently only semver or link to archive are supported`)
         }
       })
-      if (type === 'peerDependencies' || type === 'publicDependencies') {
+      if (type === 'peerDependencies' || type === 'publicDependencies' || PUBLIC_DEP_TEST) {
         // public deps - mark them as such
         // use symbol so that we don't mix the public flag with versions
         Object.keys(deps).forEach(k => {
-          deps[k][Symbol.for('public')] = true
+          deps[k]['public'] = true
           console.log(`PUBLIC >> ${k}`)
         })
       }
@@ -205,6 +218,7 @@ export function nodeFactory(name) {
 
   function getTarballUrl() {
     return csp.go(function*() {
+      //console.log('__get url')
       let pkg = yield self.getPkg()
       // sometimes, the tarball link is stored under 'dist' key, bundled with shasum
       let tarball = serialGetIn(pkg,
@@ -228,9 +242,11 @@ export function nodeFactory(name) {
 
   // returns an array of dependency objects
   function flattenDependencies(depSet) {
+    //console.log('__flatten deps')
     const ret = []
     for (let dep in depSet) {
       for (let version in depSet[dep]) {
+        //console.log(`${dep} ${version}`)
         ret.push(depSet[dep][version])
       }
     }
@@ -239,12 +255,13 @@ export function nodeFactory(name) {
 
   // creates a shallow copy of each dependency in the set
   function copyDependencies(depSet, removePublicFlag) {
+    //console.log('__copy deps')
     const ret = {}
     for (let dep in depSet) {
       ret[dep] = {}
       for (let version in dep) {
         ret[dep][version] = depSet[dep][version]
-        ret[dep][version][Symbol.for('public')] = removePublicFlag ? undefined : ret[dep][version][Symbol.for('public')]
+        ret[dep][version]['public'] = removePublicFlag ? undefined : ret[dep][version]['public']
       }
     }
     return ret
@@ -275,11 +292,12 @@ export function nodeFactory(name) {
     },
 
     addDependency: (depSet, dependency) => {
+      //console.log('__add deps')
       depSet[dependency.name] = depSet[dependency.name] || {}
       const existingSemver = semverExists(dependency.semver, Object.keys(depSet[dependency.name]))
       if (existingSemver === undefined) {
         depSet[dependency.name][dependency.semver] = dependency
-      } else if (dependency[Symbol.for('public')]) {
+      } else if (dependency['public']) {
         // public deps have higher prority
         depSet[dependency.name][existingSemver] = dependency
       }
@@ -287,6 +305,7 @@ export function nodeFactory(name) {
 
     resolvePackage: (semverOrUrl = '*') => {
       return csp.go(function*() {
+        //console.log('__resolve pkg')
         console.assert(self.status === 'init', 'Version should be resolved right after node initialization.')
         self.status = 'package-start'
         if (self.name === '__root__') {
@@ -311,6 +330,7 @@ export function nodeFactory(name) {
 
     resolveDependencies: () => {
       return csp.go(function*() {
+        //console.log('__resolve deps')
         console.assert(self.status === 'package-done', 'Dependencies should be resolved right after version')
         self.status = 'private-dependencies-start'
         // installing devDeps only for root package
@@ -318,7 +338,7 @@ export function nodeFactory(name) {
         const deps = Object.assign(yield getDeps('dependencies'), (self.name === '__root__') ? yield getDeps('devDependencies') : {}, yield getDeps('peerDependencies'), yield getDeps('publicDependencies'))
         const dependencyNodes = yield cspAll(map(Object.keys(deps), pkgName => resolveNode(pkgName, deps[pkgName].semver || deps[pkgName].url)))
         for (let dn of dependencyNodes) {
-          linkNodes(self, dn, deps[dn.name].semver || dn.version, deps[dn.name][Symbol.for('public')])
+          linkNodes(self, dn, deps[dn.name].semver || dn.version, deps[dn.name]['public'])
         }
         self.status = 'private-dependencies-done'
       })
@@ -328,6 +348,7 @@ export function nodeFactory(name) {
     // privateDep - whether we're exporting along a private branch
     // if so, remove the public flag in copyDependencies
     exportDependencies: (privateDep) => {
+      //console.log('__export deps')
       const exportPubDeps = seq(self.dependencies, depFilterForSymbol('public'))
       flattenDependencies(seq(self.successorDependencies, depFilterForSymbol('public'))).forEach(
         dep => self.addDependency(exportPubDeps, dep)
@@ -336,6 +357,7 @@ export function nodeFactory(name) {
     },
 
     getPredecessorDependencies: () => {
+      //console.log('__get pred deps')
       let predecessorDeps = {}
       for (let sub of flattenDependencies(self.subscribers)) {
         flattenDependencies(sub.resolvedIn.exportDependencies()).forEach(
@@ -346,6 +368,7 @@ export function nodeFactory(name) {
     },
 
     checkDependencies: () => {
+      //console.log('__check deps')
       self.checkedDependencies = {passedDeps: {}, conflictingDeps: {}}
       const newDeps = flattenDependencies(self.dependencies)
           .concat(flattenDependencies(self.successorDependencies))
@@ -388,13 +411,14 @@ export function nodeFactory(name) {
     },
 
     crawlAndCollectSuccessorDeps: (updateToken = Symbol()) => {
+      //console.log('__Crawl successors')
       if (self.successorToken === updateToken) return
       self.successorToken = updateToken
       self.successorDependencies = {}
       for (let dep of flattenDependencies(self.dependencies)) {
         // decend to the lowest child first
         dep.resolvedIn.crawlAndCollectSuccessorDeps(updateToken)
-        flattenDependencies(dep.resolvedIn.exportDependencies(!dep[Symbol.for('public')])).forEach(
+        flattenDependencies(dep.resolvedIn.exportDependencies(!dep['public'])).forEach(
           d => self.addDependency(self.successorDependencies, d)
         )
       }
@@ -402,6 +426,7 @@ export function nodeFactory(name) {
 
     mutate: () => {
       return csp.go(function*() {
+        //console.log('__mutate--')
         let allSubscribers = flattenDependencies(self.subscribers)
         // make sure we satisfy at least one of the subscribers
         let subToReceiveMutation = sample(allSubscribers)
@@ -412,7 +437,7 @@ export function nodeFactory(name) {
         for (let sub of allSubscribers) {
           if (satisfies(version, sub.semver)) {
             unlinkNodes(sub.resolvedIn, self)
-            linkNodes(sub.resolvedIn, newNode, sub.semver, sub[Symbol.for('public')])
+            linkNodes(sub.resolvedIn, newNode, sub.semver, sub['public'])
             console.log(`Mutated ${self.name}: ${self.version} -> ${newNode.version} for ${sub.resolvedIn.name}`)
           }
         }
@@ -423,6 +448,7 @@ export function nodeFactory(name) {
     // TODO - export bin files (according to documentation) to .bin as symlinks
     downloadAndInstall: (rootPath) => {
       return csp.go(function*() {
+        //console.log('__down adn inst')
         if (self.name === '__root__') {
           self.status = 'installed'
           self.installPath = rootPath
@@ -439,6 +465,7 @@ export function nodeFactory(name) {
 
     symlink: (rootPath) => {
       return csp.go(function*() {
+        //console.log('__symlink')
         let flatDeps = flattenDependencies(self.dependencies)
         if (flatDeps.length === 0) return
         yield cspy(mkdirp, `${self.installPath}/node_modules`)
@@ -461,6 +488,7 @@ export function nodeFactory(name) {
     },
 
     crawlAndCheck: (updateToken = Symbol()) => {
+      //console.log('__crawl and check')
       if (self.checkToken === updateToken) return
       self.checkToken = updateToken
       if (!self.checkDependencies()) conflictingNodes.push(self)
@@ -479,6 +507,7 @@ export function nodeFactory(name) {
 
     // skip argument allows us to ommit root node when needed
     crawlAndFlatten: (updateToken = Symbol(), skip = false) => {
+      //console.log('__crawl and flat')
       if (self.checkToken === updateToken) return []
       let ret = skip ? [] : [self]
       self.checkToken = updateToken
