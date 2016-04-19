@@ -129,15 +129,21 @@ function retryCspStreamFunction(fn, args, onError, errorArgs) {
   })
 }
 
+// TODOP csp_utils should be meant solely for general csp helpers applicable in any project. This
+// however is quite vpm-specific
+
 // TODO merge installPath, installDirName
 export function installUrl(targetUrl, rootPath, installPath, installDirName) {
   return csp.go(function*() {
     yield cspy(mkdirp, `${rootPath}/tmp_modules`)
     yield cspy(mkdirp, `${rootPath}/${installPath}`)
+    // TODOP: use `path` npm module, it
     // TODO leading/trailing slashes in paths and names should be valid and optional
     let tempDir = Math.random().toString(36).substring(8)
     let tempPath = `${rootPath}/tmp_modules/${installDirName}${tempDir}`
     let targetPath = `${rootPath}${installPath}/${installDirName}`
+    // TODOP Why? I don't like this blind trying. I don't see any reason why this should fail the
+    // first time but not the second.
     // for max. numTries, catch system errors and retry
     const recreateTmpDir = function*() {
       yield cspy(rimraf, tempPath)
@@ -151,6 +157,9 @@ export function installUrl(targetUrl, rootPath, installPath, installDirName) {
     )
     // tar may have it's content in 'package' subdirectory
     // TODO error handling ?
+    // TODOP: Error handling should be easy for now: everything that fails and is not handled
+    // otherwise, should resolve into global fail. Remove the TODO, or be more specific in it (what
+    // error do you want to handle and how).
     let lsDir = yield cspyData(fs.readdir, tempPath)
     if (lsDir.length === 1 && (yield cspStat(`${tempPath}/${lsDir[0]}`)).isDirectory) {
       yield cspy(fs.rename, `${tempPath}/${lsDir[0]}`, targetPath)

@@ -1,4 +1,6 @@
 import csp from 'js-csp'
+// TODOP: use es6 imports such as:
+// import semverCmp from 'semver-compare'
 const semverCmp = require('semver-compare')
 const mkdirp = require('mkdirp')
 const fs = require('fs')
@@ -16,6 +18,11 @@ let PUBLIC_DEP_TEST = false
 export function enableTestMode() {
   PUBLIC_DEP_TEST = true
 }
+
+// TODOP: Document types properly
+// TODOP: Refactor into data part and functions operating on it (I'll explain in a call), OR use
+// proper Class to represent node
+// TODOP:
 
 /* -- comment section --
 
