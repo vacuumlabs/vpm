@@ -19,6 +19,55 @@ export function enableTestMode() {
   PUBLIC_DEP_TEST = true
 }
 
+/*
+// keeps npmregistry-like info about one package; nothing related to VPM is put to Node:
+type Node = {
+  name,
+  version,
+  dependencies: {
+    name: {
+      name,
+      semver
+    }
+  }
+}
+
+// stores complete info about 'the solution', i.e. how are individual dependencies resolved.
+// It allows to describe the situation when two dependencies on package `B` are satisfied by two identical
+// versions `v` but with different sub-dependency trees C and C':
+// A  depends on (B, v) which depends on C
+// A' depends on (B, v) which depends on C'
+
+type Resolved = {
+  node: { // key is node => Resolved is ES6 Map
+    dependencyName: {
+      Node
+    }
+  }
+}
+
+
+// inverse structure to Resolved, not sure if it is needed but just in case:
+type Dependants = { // aka subscribers
+  node: [Node] // once again, ES6 map
+}
+
+// Resolved and Dependants are subjected to the following invariant:
+// if node, name and dep are such as:
+let dep = resolved.get(node)[name]
+// then the following is true: (if Array.contains was implemented already :) )
+dependants.get(dep).contains(node)
+
+// Example: list all child nodes for a given node:
+function* getChildren(node) {
+  let dependencies = resolved(node)
+  for (let name in dependencies) {
+    yield dependencies[name]
+  }
+}
+
+*/
+
 // TODOP: Document types properly
 // TODOP: Refactor into data part and functions operating on it (I'll explain in a call), OR use
 // proper Class to represent node
