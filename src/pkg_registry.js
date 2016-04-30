@@ -27,14 +27,18 @@ export function _getPackageInfo(pkg) {
   function availableMutations(pkgObj, previousVersion, semver) {
     let ret = []
     let sortedVersions = Object.keys(pkgObj.versions).sort(rcompare)
+    //console.log(`AVMUTS VERS ${sortedVersions}`)
+    //console.log(`AVMUTS semvERS ${semver}`)
     for (let ver of sortedVersions) {
       if (!satisfies(ver, semver)) continue
+      //console.log(`${ver} sat ${semver}`)
       // TODO optional dependencies ?
+      ret.push(ver)
       for (let type of ['dependencies', 'devDependencies', 'peerDependencies', 'publicDependencies']) {
-        if (!isEqual(pkgObj.versions[ver][type], pkgObj.versions[ver][type])) {
+        if (!isEqual(pkgObj.versions[ver][type], pkgObj.versions[previousVersion][type])) {
           // just to be sure, ignore cases where deps are empty/undefined in both versions
-          if ((pkgObj.versions[ver][type] === undefined || (isEmpty(pkgObj.versions[ver][type]))) && (pkgObj.versions[previousVersion][type] === undefined || (isEmpty(pkgObj.versions[previousVersion][type])))) continue
-          ret.push(ver)
+          //if ((pkgObj.versions[ver][type] === undefined || (isEmpty(pkgObj.versions[ver][type]))) && (pkgObj.versions[previousVersion][type] === undefined || (isEmpty(pkgObj.versions[previousVersion][type])))) continue
+          //ret.push(ver)
         }
       }
     }
@@ -99,7 +103,7 @@ export function getPackageInfo(nrConnections = 6) {
   return (pkg) => {
     return csp.go(function*() {
       if (pkg in registry) {
-        if ('package' in registry[pkg]) {
+        if (registry[pkg]) {
           return yield csp.peek(registry[pkg])
         }
       }

@@ -17,7 +17,8 @@
     "plugins": []
   },
   "dependencies": {
-    "firebase-queue": "",
-    "firebase": "https://registry.npmjs.org/firebase/-/firebase-0.5.0.tgz"
+    "firebase-queue": "*",
+    "firebase": "*",
+    "lodash": "3.7.x"
   }
 }

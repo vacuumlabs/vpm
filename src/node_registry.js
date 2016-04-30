@@ -5,16 +5,17 @@ const fs = require('fs')
 const rimraf = require('rimraf')
 import {satisfies, rcompare, validRange as semverValid} from 'semver'
 import {map, filter, seq} from 'transducers.js'
-import {set, sample, random, isEmpty} from 'lodash'
+import {set, sample, random, isEmpty, clone} from 'lodash'
 import {cspAll, cspy, cspStat, cspParseFile, installUrl} from './lib/csp_utils'
 import {getIn, serialGetIn} from './lib/state_utils'
 import {getPackageInfo} from './pkg_registry'
 import {isUri} from 'valid-url'
 
 let PUBLIC_DEP_TEST = false
+const ANNEAL_ITERATIONS = 1000
 
-export function enableTestMode() {
-  PUBLIC_DEP_TEST = true
+export function enableTestMode(state = true) {
+  PUBLIC_DEP_TEST = state
 }
 
 /* -- comment section --
@@ -22,12 +23,7 @@ export function enableTestMode() {
 nodeRegistry = {
   name => {
     version => {
-      dependent: [{
-        node: node,
-        semver: semver
-      }],
-      nodeChannel: ch
-      subscribe:
+
     }
   }
 }
@@ -45,7 +41,7 @@ depSet = {
 const getter = getPackageInfo()
 
 let nodeRegistry = {}
-let conflictingNodes = []
+let conflictingNodes = new Set()
 
 //for testing
 export function resetRegistry() {
@@ -57,38 +53,99 @@ export function getConflictingNodes() {
   return conflictingNodes
 }
 
+export function checkDependencies(root) {
+  conflictingNodes = new Set()
+  root.checkNode()
+  return conflictingNodes.size
+}
+
+let debugroot
+
 // checks and repairs subtree starting at root
 // despite original intent, root must be tree root, otherwise it might break
 export function mutateIntoConsistent(root) {
-  //console.log('__mutate deps')
-  conflictingNodes = []
-  root.crawlAndCheck()
-  while (conflictingNodes.length) {
-    console.log('New mutation round')
-    //choose random conflicting
-    let node = sample(conflictingNodes)
-    // TODO annealing - go further up with higher temp, go rand(0..4) for now
-    let depth = random(4)
-    for (let i = 0; i < depth; i++) {
-      //abort if we can't go higher
-      if (isEmpty(node.subscribers)) break
-      node = sample(sample(node.subscribers)).resolvedIn
-      node.mutate()
-      root.crawlAndCollectSuccessorDeps
+  return csp.go(function*() {
+    //console.log('__mutate deps')
+    debugroot=root
+    checkDependencies(root)
+    console.log(conflictingNodes)
+    console.log('>>>>>>>INSIDE MUTATIONS<<<<<<<<<<<')
+    while (conflictingNodes.length) {
+      console.log('New mutation round')
+      //choose random conflicting
+      let node = sample(conflictingNodes)
+      let depth = random(4)
+      for (let i = 0; i < depth; i++) {
+        //abort if we can't go higher
+        //this shouldn't happen: if (isEmpty(node.subscribers)) break
+        let nodeProposition = sample(sample(node.subscribers)).resolvedIn
+        if (nodeProposition.name === '__root__') break
+        node = nodeProposition
+        console.log(`descend ${node.name}`)
+      }
+      yield node.mutate()
+      //root.crawlAndCollectSuccessorDeps
+      conflictingNodes = []
+      checkDependencies(root)
+      root.crawlAndPrint()
     }
-    conflictingNodes = []
-    root.crawlAndCheck()
+  })
+}
+
+function probabilisticTransition(stateOld, stateNew, temp) {
+  return ((stateNew < stateOld) || (Math.exp(-1 * (stateNew - stateOld) / temp) > Math.random()))
+}
+
+export function annealing(root) {
+  return csp.go(function*() {
+    //console.log('__mutate deps')
+    console.log('initial')
+    root.crawlAndPrint()
+    debugroot = root
+    for (let i = 0; i < ANNEAL_ITERATIONS; i++) {
+      let oldState = checkDependencies(root)
+      console.log(`Anneling iteration ${i} conflicts ${oldState}`)
+      if (!oldState) break
+      let muts = mutatibleNodes()
+      //console.log(muts)
+      let candidate = sample(muts)
+      //console.log(candidate)
+      let undoMutation = yield candidate.mutate()
+      let newState = checkDependencies(root)
+      console.log('after mutation')
+      root.crawlAndPrint()
+      if (!probabilisticTransition(oldState, newState, ANNEAL_ITERATIONS - i)) {
+        console.log('check failed - undoing')
+        undoMutation()
+        root.crawlAndPrint()
+      }
+    }
+  })
+}
+
+// returns the part of the tree which is worthy of mutation
+function mutatibleNodes() {
+  let ret = new Set()
+  const recCrawl = (node) => {
+    if (node.name === '__root__') return
+    ret.add(node)
+    flattenDependencies(node.subscribers).forEach(s => {
+      if (!ret.has(s.resolvedIn)) recCrawl(s.resolvedIn)
+    })
   }
+  Array.from(conflictingNodes).forEach(n => recCrawl(n))
+  return Array.from(ret)
 }
 
 // expects package.json in root path
 export function resolveRootNode(rootPath) {
+  PUBLIC_DEP_TEST && console.log(`TEST MODE ON - ALL DEPENDENCIES PUBIC`)
   return csp.go(function*() {
     let node = nodeFactory('__root__')
     yield node.resolvePackage(`${rootPath}/package.json`)
     set(nodeRegistry, ['__root__', node.version], node)
     yield node.resolveDependencies()
-    node.crawlAndCollectSuccessorDeps()
+    //node.crawlAndCollectSuccessorDeps()
     return node
   })
 }
@@ -112,7 +169,7 @@ export function resolveNode(name, semverOrUrl = '*') {
     console.log(`${name}${semverOrUrl} resolved into new version ${node.version} not matched in [${Object.keys(nr)}]`)
     nodeRegistry[name][node.version] = node
     yield node.resolveDependencies()
-    node.crawlAndCollectSuccessorDeps()
+    //node.crawlAndCollectSuccessorDeps()
     return node
   })
 }
@@ -124,6 +181,7 @@ function removeFromDepSet(depSet, nodeObj) {
       if (depSet[dep][version].resolvedIn === nodeObj) {
         if (Object.keys(depSet[dep]).length === 1) {
           // was the only version, remove whole dependency
+          //console.log(`deleted ${dep} from ${depSet}`)
           delete depSet[dep]
         } else {
           // only delete single version
@@ -134,13 +192,25 @@ function removeFromDepSet(depSet, nodeObj) {
   }
 }
 
+// returns an array of dependency objects
+function flattenDependencies(depSet) {
+  //console.log('__flatten deps')
+  const ret = []
+  for (let dep in depSet) {
+    for (let version in depSet[dep]) {
+      //console.log(`${dep} ${version}`)
+      ret.push(depSet[dep][version])
+    }
+  }
+  return ret
+}
+
 // create dependency and assign both ways
 // semver, parent, public
-function linkNodes(parent, child, semver, pub) {
+function linkNodes(parent, child, semver, pub, debug) {
   //console.log('__link')
-  let dep = dependency(semver, child, pub)
-  parent.addDependency(parent.dependencies, dep)
-  child.addDependency(child.subscribers, dep)
+  parent.addDependency(parent.dependencies, dependency(semver, child, pub))
+  child.addDependency(child.subscribers, dependency(semver, parent, pub), debug)
 }
 
 // remove from both dependencies and subscribers
@@ -148,6 +218,10 @@ function unlinkNodes(parent, child) {
   //console.log('__ulink')
   removeFromDepSet(parent.dependencies, child)
   removeFromDepSet(child.subscribers, parent)
+  //console.log(`UNLINKED ${parent.name}${parent.version} and ${child.name}${child.version}`)
+  //console.log(parent.dependencies)
+  //console.log('///////////')
+  //console.log(child.subscribers)
 }
 
 // factory
@@ -171,12 +245,6 @@ export function nodeFactory(name) {
 
   //const versionPubFilter = filter(d => d['public'])
   //const depPubFilter = map(d => seq(d, versionPubFilter))
-
-  // TODO - we're no longer using symbols, make this a 'filter for public' without param
-  function depFilterForSymbol(symName) {
-    const innerFilter = filter(d => d[symName])
-    return map(d => seq(d, innerFilter))
-  }
 
   // gets package.json format of dependencies, with symbol for public where needed
   function getDeps(type) {
@@ -209,7 +277,6 @@ export function nodeFactory(name) {
         // use symbol so that we don't mix the public flag with versions
         Object.keys(deps).forEach(k => {
           deps[k]['public'] = true
-          console.log(`PUBLIC >> ${k}`)
         })
       }
       return deps
@@ -240,27 +307,17 @@ export function nodeFactory(name) {
     return undefined
   }
 
-  // returns an array of dependency objects
-  function flattenDependencies(depSet) {
-    //console.log('__flatten deps')
-    const ret = []
-    for (let dep in depSet) {
-      for (let version in depSet[dep]) {
-        //console.log(`${dep} ${version}`)
-        ret.push(depSet[dep][version])
-      }
-    }
-    return ret
-  }
+
 
   // creates a shallow copy of each dependency in the set
-  function copyDependencies(depSet, removePublicFlag) {
+  function copyDependencies(depSet, removePublicFlag, filterForPulic) {
     //console.log('__copy deps')
     const ret = {}
     for (let dep in depSet) {
-      ret[dep] = {}
-      for (let version in dep) {
-        ret[dep][version] = depSet[dep][version]
+      for (let version in depSet[dep]) {
+        if (filterForPulic && !depSet[dep][version]['public']) continue
+        ret[dep] = ret[dep] || {}
+        ret[dep][version] = clone(depSet[dep][version])
         ret[dep][version]['public'] = removePublicFlag ? undefined : ret[dep][version]['public']
       }
     }
@@ -283,6 +340,49 @@ export function nodeFactory(name) {
     },
     getPkg: getter.bind(null, name),
 
+    // pub === false -> get's every dependency, otherwise only public
+    getDependencyNodes: (pub) => {
+      const ret = []
+      for (let dep in self.dependencies) {
+        for (let version in self.dependencies[dep]) {
+          if (self.dependencies[dep][version]['public'] || !pub) {
+            if (!self.dependencies[dep][version].resolvedIn) {
+              console.log('this is weird')
+              console.log(self)
+              console.log(self.dependencies[dep][version])
+              console.log('--this is weird')
+            }
+            ret.push(self.dependencies[dep][version].resolvedIn)
+          }
+        }
+      }
+      return ret
+    },
+
+    checkNode: (visitedSet = new Map()) => {
+      if (visitedSet.has(self)) return visitedSet.get(self)
+      visitedSet.set(self, [])
+      let publicExports = [].concat(...self.getDependencyNodes(true).map(d => d.checkNode(visitedSet)), self)
+      visitedSet.set(self, publicExports)
+      // TODO optimization
+      let privateImports = [].concat(...self.getDependencyNodes(false).map(d => d.checkNode(visitedSet)), self)
+      //console.log('privates')
+      //console.log(privateImports)
+      visitedSet.delete(self)
+      //console.log('/.//./.')
+      //console.log(self)
+      let checkMap = {}
+      for (let dep of privateImports) {
+        //flattenDependencies(self.dependencies).forEach(d => console.log(d.name, d.resolvedIn))
+        if (checkMap[dep.name] && (checkMap[dep.name].version !== dep.version)) {
+          conflictingNodes.add(dep)
+          conflictingNodes.add(checkMap[dep.name])
+        }
+        checkMap[dep.name] = dep
+      }
+      return publicExports
+    },
+
     test: () => {
       return csp.go(function*() {
         for (let i = 0; i < 5; i++) {
@@ -291,8 +391,12 @@ export function nodeFactory(name) {
       })
     },
 
-    addDependency: (depSet, dependency) => {
-      //console.log('__add deps')
+    addDependency: (depSet, dependency, debug) => {
+      if (debug) {
+        //console.log('__add deps')
+        //console.log(depSet)
+        //console.log(dependency)
+      }
       depSet[dependency.name] = depSet[dependency.name] || {}
       const existingSemver = semverExists(dependency.semver, Object.keys(depSet[dependency.name]))
       if (existingSemver === undefined) {
@@ -300,6 +404,11 @@ export function nodeFactory(name) {
       } else if (dependency['public']) {
         // public deps have higher prority
         depSet[dependency.name][existingSemver] = dependency
+      }
+      if (debug) {
+        //console.log('__afteradd deps')
+        //console.log(depSet)
+        //console.log(dependency)
       }
     },
 
@@ -349,11 +458,16 @@ export function nodeFactory(name) {
     // if so, remove the public flag in copyDependencies
     exportDependencies: (privateDep) => {
       //console.log('__export deps')
-      const exportPubDeps = seq(self.dependencies, depFilterForSymbol('public'))
-      flattenDependencies(seq(self.successorDependencies, depFilterForSymbol('public'))).forEach(
+      // TODO continue here - why don't we work with flattened all the way ?
+      // TODO rethink and/or rewrite ? for now ugly to not waste time
+      const exportPubDeps = copyDependencies(self.dependencies, false, true)
+      // TODO this is horrible, rewrite pleeease
+      flattenDependencies(copyDependencies(self.successorDependencies, false, true)).forEach(
         dep => self.addDependency(exportPubDeps, dep)
       )
-      return copyDependencies(exportPubDeps, privateDep)
+      let ret = copyDependencies(exportPubDeps, privateDep)
+      //console.log(ret)
+      return ret
     },
 
     getPredecessorDependencies: () => {
@@ -372,75 +486,106 @@ export function nodeFactory(name) {
       self.checkedDependencies = {passedDeps: {}, conflictingDeps: {}}
       const newDeps = flattenDependencies(self.dependencies)
           .concat(flattenDependencies(self.successorDependencies))
-          .concat(flattenDependencies(self.getPredecessorDependencies()))
-      const prevNames = new Set(Object.keys(self.checkedDependencies.passedDeps).concat(Object.keys(self.checkedDependencies.conflictingDeps)))
-      for (let name in newDeps) {
+          .map(d => clone(d))
+      const prevNames = new Set()
+      for (let currentDep of newDeps) {
+        let name = currentDep.name
         if (prevNames.has(name)) {
           if (self.checkedDependencies.passedDeps[name] !== undefined) {
-            if (self.checkedDependencies.passedDeps[name].resolvedIn !== newDeps[name].resolvedIn) {
+            if (self.checkedDependencies.passedDeps[name].resolvedIn !== currentDep.resolvedIn) {
               //sanity-check
               if (self.checkedDependencies.conflictingDeps[name] !== undefined) {
                 throw new Error(`Dependency name in both checked and conflicting: ${self.checkedDependencies} , ${newDeps}`)
               }
               // new conflict, move previous dependency from passedDeps to conflicting, add new conflicting
               self.checkedDependencies.conflictingDeps[name] = []
-              self.checkedDependencies.conflictingDeps[name].push(self.checkedDependencies.passedDeps[name], newDeps[name])
+              self.checkedDependencies.conflictingDeps[name].push(self.checkedDependencies.passedDeps[name], currentDep)
               self.checkedDependencies.passedDeps[name] = undefined
             } else {
               // merge semvers, they resolve into at least one version
-              self.checkedDependencies.passedDeps[name].semver = `${self.checkedDependencies.passedDeps[name].semver} ${newDeps[name].semver}`
+              self.checkedDependencies.passedDeps[name].semver = `${self.checkedDependencies.passedDeps[name].semver} ${currentDep.semver}`
             }
           } else {
             // find if we can merge with any of the already conflicting ones
-            for (let conflict of self.checkedDependencies.conflictingDeps) {
-              if (conflict.resolvedIn === newDeps[name].resolvedIn) {
-                conflict.semver = `${conflict.semver} ${newDeps[name].semver}`
-                continue
+            if (self.checkedDependencies.conflictingDeps[name]) {
+              for (let conflict of self.checkedDependencies.conflictingDeps[name]) {
+                if (conflict.resolvedIn === currentDep.resolvedIn) {
+                  conflict.semver = `${conflict.semver} ${currentDep.semver}`
+                  continue
+                }
               }
+            } else {
+              // no conflict resolves to same node, add new conflicting
+              self.checkedDependencies.conflictingDeps[name].push(currentDep)
             }
-            // no conflict resolves to same node, add new conflicting
-            self.checkedDependencies.conflictingDeps[name].push(newDeps[name])
           }
         } else {
+          // TODO do we need prevNames ? maybe use checkedDeps only
+          prevNames.add(name)
           // add non-conflicting
-          self.checkedDependencies.passedDeps[name] = newDeps[name]
+          self.checkedDependencies.passedDeps[name] = currentDep
         }
       }
-      if (self.checkedDependencies.conflictingDeps.length) return false
+      if (Object.keys(self.checkedDependencies.conflictingDeps).length) return false
       return true
     },
 
     crawlAndCollectSuccessorDeps: (updateToken = Symbol()) => {
       //console.log('__Crawl successors')
       if (self.successorToken === updateToken) return
+      //console.log('passed token')
       self.successorToken = updateToken
       self.successorDependencies = {}
       for (let dep of flattenDependencies(self.dependencies)) {
         // decend to the lowest child first
+        //console.log('descend')
         dep.resolvedIn.crawlAndCollectSuccessorDeps(updateToken)
         flattenDependencies(dep.resolvedIn.exportDependencies(!dep['public'])).forEach(
-          d => self.addDependency(self.successorDependencies, d)
+          d => {
+            //console.log(`Add resolved dependency ${d.resolvedIn.name}`)
+            self.addDependency(self.successorDependencies, d)
+          }
         )
+        //console.log('ascend')
       }
     },
 
+    // returns a function that reverses the mutation
     mutate: () => {
       return csp.go(function*() {
-        //console.log('__mutate--')
+        //console.log(`__mutate-- ${self.name}${self.version}`)
         let allSubscribers = flattenDependencies(self.subscribers)
         // make sure we satisfy at least one of the subscribers
         let subToReceiveMutation = sample(allSubscribers)
-        let version = sample(yield self.getPkg().getAvailableMutation(self.version, subToReceiveMutation.semver))
-        let newNode = resolveNode(self.name, version)
+        //console.log(allSubscribers)
+        //console.log('^^^^^^^^^^^allubs')
+        let pkg = yield self.getPkg()
+        let availableMutations = pkg.getAvailableMutations(self.version, subToReceiveMutation.semver)
+        //console.log(`available muts: ${availableMutations}`)
+        let version = sample(availableMutations)
+        let newNode = yield resolveNode(self.name, version)
+        let reverse = () => {}
+        //console.log('NEW NODE')
+        //console.log(newNode)
         // the one subscriber is guaranteed to receive the new node
         // for the rest, apply where possible
         for (let sub of allSubscribers) {
           if (satisfies(version, sub.semver)) {
             unlinkNodes(sub.resolvedIn, self)
-            linkNodes(sub.resolvedIn, newNode, sub.semver, sub['public'])
+            linkNodes(sub.resolvedIn, newNode, sub.semver, sub['public'], true)
+            reverse = () => {
+              unlinkNodes(sub.resolvedIn, newNode)
+              linkNodes(sub.resolvedIn, self, sub.semver, sub['public'], true)
+            }
+            //console.log('NEW NODE SUB')
+            //console.log(newNode)
+            //console.log('SUBBED TO')
+            //console.log(sub.resolvedIn.dependencies[newNode.name])
             console.log(`Mutated ${self.name}: ${self.version} -> ${newNode.version} for ${sub.resolvedIn.name}`)
+            break // consider this break
           }
         }
+        return reverse
       })
     },
 
@@ -491,7 +636,18 @@ export function nodeFactory(name) {
       //console.log('__crawl and check')
       if (self.checkToken === updateToken) return
       self.checkToken = updateToken
-      if (!self.checkDependencies()) conflictingNodes.push(self)
+      if (!self.checkDependencies()) {
+        // TODO simplify confl. desp structure
+        for (let key of Object.keys(self.checkedDependencies.conflictingDeps)) {
+          let arr = self.checkedDependencies.conflictingDeps[key].map(d => {
+            if (isEmpty(d.resolvedIn.subscribers)) {
+              debugroot.crawlAndPrint()
+            }
+            return d.resolvedIn
+          })
+          conflictingNodes = conflictingNodes.concat(arr)
+        }
+      }
       flattenDependencies(self.dependencies).forEach(d => d.resolvedIn.crawlAndCheck(updateToken))
     },
 
@@ -503,6 +659,17 @@ export function nodeFactory(name) {
       console.log(`${' '.repeat(offset)}${self.name} ${self.version}`)
       self.checkToken = updateToken
       flattenDependencies(self.dependencies).forEach(d => d.resolvedIn.crawlAndPrint(updateToken, offset+2))
+    },
+
+    crawlAndPrintSubs: (updateToken = Symbol(), offset = 0) => {
+      if (self.checkToken === updateToken) {
+        return
+      }
+      console.log(`${self.name} ${self.version}`)
+      console.log('subs>>')
+      console.log(self.subscribers)
+      self.checkToken = updateToken
+      flattenDependencies(self.dependencies).forEach(d => d.resolvedIn.crawlAndPrintSubs(updateToken, offset+2))
     },
 
     // skip argument allows us to ommit root node when needed
