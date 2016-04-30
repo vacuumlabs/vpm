@@ -46,7 +46,7 @@ let conflictingNodes = new Set()
 //for testing
 export function resetRegistry() {
   nodeRegistry = {}
-  conflictingNodes = []
+  conflictingNodes = new Set()
 }
 
 export function getConflictingNodes() {
@@ -127,7 +127,7 @@ export function annealing(root) {
 function mutatibleNodes() {
   let ret = new Set()
   const recCrawl = (node) => {
-    if (node.name === '__root__') return
+    if (!flattenDependencies(node.subscribers).length) return
     ret.add(node)
     flattenDependencies(node.subscribers).forEach(s => {
       if (!ret.has(s.resolvedIn)) recCrawl(s.resolvedIn)
@@ -368,7 +368,7 @@ export function nodeFactory(name) {
       let privateImports = [].concat(...self.getDependencyNodes(false).map(d => d.checkNode(visitedSet)), self)
       //console.log('privates')
       //console.log(privateImports)
-      visitedSet.delete(self)
+      //visitedSet.delete(self)
       //console.log('/.//./.')
       //console.log(self)
       let checkMap = {}
@@ -557,6 +557,10 @@ export function nodeFactory(name) {
         let allSubscribers = flattenDependencies(self.subscribers)
         // make sure we satisfy at least one of the subscribers
         let subToReceiveMutation = sample(allSubscribers)
+        if (!subToReceiveMutation) {
+          console.log('nosubs')
+          console.log(self)
+        }
         //console.log(allSubscribers)
         //console.log('^^^^^^^^^^^allubs')
         let pkg = yield self.getPkg()
