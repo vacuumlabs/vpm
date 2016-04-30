@@ -29,10 +29,10 @@ describe('Main', function() {
     }), () => done())
   })
   */
-  it('should try install vpm with public', function(done) {
+  it('should try install wordy with public', function(done) {
     csp.takeAsync(csp.go(function*() {
       enableTestMode()
-      yield cspCopyFile('./package.json', `${targetPath}/package.json`)
+      yield cspCopyFile('./test/wordy.json', `${targetPath}/package.json`)
       yield install(targetPath)
     }), () => done())
   })

@@ -87,20 +87,21 @@ export function mutateIntoConsistent(root) {
       //root.crawlAndCollectSuccessorDeps
       conflictingNodes = []
       checkDependencies(root)
-      root.crawlAndPrint()
+      //root.crawlAndPrint()
     }
   })
 }
 
 function probabilisticTransition(stateOld, stateNew, temp) {
-  return ((stateNew < stateOld) || (Math.exp(-1 * (stateNew - stateOld) / temp) > Math.random()))
+  return stateNew < stateOld
+  //return ((stateNew < stateOld) || (Math.exp(-1 * (stateNew - stateOld) / temp) > Math.random()))
 }
 
 export function annealing(root) {
   return csp.go(function*() {
     //console.log('__mutate deps')
-    console.log('initial')
-    root.crawlAndPrint()
+    //console.log('initial')
+    //root.crawlAndPrint()
     debugroot = root
     for (let i = 0; i < ANNEAL_ITERATIONS; i++) {
       let oldState = checkDependencies(root)
@@ -112,12 +113,12 @@ export function annealing(root) {
       //console.log(candidate)
       let undoMutation = yield candidate.mutate()
       let newState = checkDependencies(root)
-      console.log('after mutation')
-      root.crawlAndPrint()
+      //console.log('after mutation')
+      //root.crawlAndPrint()
       if (!probabilisticTransition(oldState, newState, ANNEAL_ITERATIONS - i)) {
-        console.log('check failed - undoing')
+        //console.log('check failed - undoing')
         undoMutation()
-        root.crawlAndPrint()
+        //root.crawlAndPrint()
       }
     }
   })
@@ -269,7 +270,8 @@ export function nodeFactory(name) {
         } else if (isUri(deps[k])) {
           deps[k] = {url: deps[k]}
         } else {
-          throw new Error(`Invalid dependency value ${deps[k]} - currently only semver or link to archive are supported`)
+          // throw new Error was here, semverValid does not support release candidates, assume all will be good :)
+          console.log(`Invalid dependency value ${deps[k]} - currently only semver or link to archive are supported`)
         }
       })
       if (type === 'peerDependencies' || type === 'publicDependencies' || PUBLIC_DEP_TEST) {
