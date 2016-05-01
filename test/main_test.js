@@ -29,6 +29,14 @@ describe('Main', function() {
     }), () => done())
   })
   */
+  it('should try install itself with public', function(done) {
+    csp.takeAsync(csp.go(function*() {
+      enableTestMode()
+      yield cspCopyFile('./package.json', `${targetPath}/package.json`)
+      yield install(targetPath)
+    }), () => done())
+  })
+  /*
   it('should try install wordy with public', function(done) {
     csp.takeAsync(csp.go(function*() {
       enableTestMode()
@@ -36,7 +44,6 @@ describe('Main', function() {
       yield install(targetPath)
     }), () => done())
   })
-  /*
   it('should install wordy - use npm 3.3.12 to compare', function(done) {
     csp.takeAsync(csp.go(function*() {
       yield cspCopyFile('./test/wordy.json', `${targetPath}/package.json`)

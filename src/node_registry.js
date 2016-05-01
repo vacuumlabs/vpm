@@ -12,7 +12,9 @@ import {getPackageInfo} from './pkg_registry'
 import {isUri} from 'valid-url'
 
 let PUBLIC_DEP_TEST = false
+
 const ANNEAL_ITERATIONS = 1000
+const MAX_PROB = 0.5
 
 export function enableTestMode(state = true) {
   PUBLIC_DEP_TEST = state
@@ -92,9 +94,23 @@ export function mutateIntoConsistent(root) {
   })
 }
 
-function probabilisticTransition(stateOld, stateNew, temp) {
-  return stateNew < stateOld
-  //return ((stateNew < stateOld) || (Math.exp(-1 * (stateNew - stateOld) / temp) > Math.random()))
+function temperatureIterationTransition(currentIteration) {
+  //linear interpolation between 0.5 and 0
+  //return currentIteration*(-MAX_PROB)/ANNEAL_ITERATIONS+MAX_PROB
+  //faster appraoch
+  //let ret  = (0.95*(Math.pow(Math.E,(-1.0*currentIteration))-Math.pow(Math.E,-1.0*ANNEAL_ITERATIONS)))
+  //let ret = 1-Math.pow(currentIteration/(1.0*ANNEAL_ITERATIONS), 2)
+  // TODO take conflicts into account, moar functons
+  // TODO unrelated- browserify,express .. or npm, ied
+  // write about join/split
+  let ret = 0.5-Math.sqrt(currentIteration/(0.4*ANNEAL_ITERATIONS))
+  console.log(`Current probability ${ret}`)
+  return ret
+}
+
+function probabilisticTransition(stateOld, stateNew, iteration) {
+  //return stateNew < stateOld
+  return ((stateNew < stateOld) || temperatureIterationTransition(iteration) > Math.random())
 }
 
 export function annealing(root) {
@@ -115,7 +131,7 @@ export function annealing(root) {
       let newState = checkDependencies(root)
       //console.log('after mutation')
       //root.crawlAndPrint()
-      if (!probabilisticTransition(oldState, newState, ANNEAL_ITERATIONS - i)) {
+      if (!probabilisticTransition(oldState, newState, i)) {
         //console.log('check failed - undoing')
         undoMutation()
         //root.crawlAndPrint()
