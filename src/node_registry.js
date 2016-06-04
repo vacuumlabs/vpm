@@ -13,8 +13,11 @@ import {isUri} from 'valid-url'
 
 let PUBLIC_DEP_TEST = false
 
-const ANNEAL_ITERATIONS = 1000
-const MAX_PROB = 0.5
+const ANNEAL_ITERATIONS = 200
+const TEMP_ITERATIONS = 10
+const MAX_PROB = 0.6
+const INIT_TEMP = 15
+const TEMP_COEF = 0.65
 
 export function enableTestMode(state = true) {
   PUBLIC_DEP_TEST = state
@@ -95,16 +98,18 @@ export function mutateIntoConsistent(root) {
 }
 
 function temperatureIterationTransition(currentIteration) {
+  let ret
   //linear interpolation between 0.5 and 0
-  //return currentIteration*(-MAX_PROB)/ANNEAL_ITERATIONS+MAX_PROB
+  ret = currentIteration*(-MAX_PROB)/ANNEAL_ITERATIONS+MAX_PROB
   //faster appraoch
-  //let ret  = (0.95*(Math.pow(Math.E,(-1.0*currentIteration))-Math.pow(Math.E,-1.0*ANNEAL_ITERATIONS)))
-  //let ret = 1-Math.pow(currentIteration/(1.0*ANNEAL_ITERATIONS), 2)
+  //ret  = (0.95*(Math.pow(Math.E,(-1.0*currentIteration))-Math.pow(Math.E,-1.0*ANNEAL_ITERATIONS)))
+  //ret = 1-Math.pow(currentIteration/(1.0*ANNEAL_ITERATIONS), 2)
   // TODO take conflicts into account, moar functons
   // TODO unrelated- browserify,express .. or npm, ied
   // write about join/split
-  let ret = 0.5-Math.sqrt(currentIteration/(0.4*ANNEAL_ITERATIONS))
+  ret = MAX_PROB-Math.sqrt(MAX_PROB*currentIteration/(ANNEAL_ITERATIONS))
   console.log(`Current probability ${ret}`)
+  //ret = 0
   return ret
 }
 
@@ -113,29 +118,42 @@ function probabilisticTransition(stateOld, stateNew, iteration) {
   return ((stateNew < stateOld) || temperatureIterationTransition(iteration) > Math.random())
 }
 
+function annealTransition(oldState, newState, iteration) {
+  //e^(-1.0*(10.0*diff)/(100*(0.65^i)))/2
+  let diff = newState - oldState
+  let prob = Math.exp(-1.0 * (10.0 * diff) / (INIT_TEMP * (Math.pow(TEMP_COEF, iteration))))
+  console.log(`Curr prob ${prob}`)
+  return newState < oldState || prob > Math.random()
+}
+
 export function annealing(root) {
   return csp.go(function*() {
     //console.log('__mutate deps')
     //console.log('initial')
     //root.crawlAndPrint()
     debugroot = root
-    for (let i = 0; i < ANNEAL_ITERATIONS; i++) {
-      let oldState = checkDependencies(root)
-      console.log(`Anneling iteration ${i} conflicts ${oldState}`)
-      if (!oldState) break
-      let muts = mutatibleNodes()
-      //console.log(muts)
-      let candidate = sample(muts)
-      //console.log(candidate)
-      let undoMutation = yield candidate.mutate()
-      let newState = checkDependencies(root)
-      //console.log('after mutation')
-      //root.crawlAndPrint()
-      if (!probabilisticTransition(oldState, newState, i)) {
-        //console.log('check failed - undoing')
-        undoMutation()
+    for (let j = 0; j < TEMP_ITERATIONS; j++) {
+      let oldState = 0
+      for (let i = 0; i < ANNEAL_ITERATIONS; i++) {
+        oldState = checkDependencies(root)
+        console.log(`Anneling iteration ${i} conflicts ${oldState}`)
+        if (!oldState) break
+        let muts = mutatibleNodes()
+        //console.log(muts)
+        let candidate = sample(muts)
+        //console.log(candidate)
+        let undoMutation = yield candidate.mutate()
+        let newState = checkDependencies(root)
+        //console.log('after mutation')
         //root.crawlAndPrint()
+        //if (!probabilisticTransition(oldState, newState, i)) {
+        if (!annealTransition(oldState, newState, j)) {
+          //console.log('check failed - undoing')
+          undoMutation()
+          //root.crawlAndPrint()
+        }
       }
+      if (!oldState) break
     }
   })
 }
@@ -382,16 +400,9 @@ export function nodeFactory(name) {
       visitedSet.set(self, [])
       let publicExports = [].concat(...self.getDependencyNodes(true).map(d => d.checkNode(visitedSet)), self)
       visitedSet.set(self, publicExports)
-      // TODO optimization
       let privateImports = [].concat(...self.getDependencyNodes(false).map(d => d.checkNode(visitedSet)), self)
-      //console.log('privates')
-      //console.log(privateImports)
-      //visitedSet.delete(self)
-      //console.log('/.//./.')
-      //console.log(self)
       let checkMap = {}
       for (let dep of privateImports) {
-        //flattenDependencies(self.dependencies).forEach(d => console.log(d.name, d.resolvedIn))
         if (checkMap[dep.name] && (checkMap[dep.name].version !== dep.version)) {
           conflictingNodes.add(dep)
           conflictingNodes.add(checkMap[dep.name])
@@ -461,8 +472,8 @@ export function nodeFactory(name) {
         console.assert(self.status === 'package-done', 'Dependencies should be resolved right after version')
         self.status = 'private-dependencies-start'
         // installing devDeps only for root package
-        // we assume no overlap in private/public/peer deps, otherwise public > peer > dev > private
-        const deps = Object.assign(yield getDeps('dependencies'), (self.name === '__root__') ? yield getDeps('devDependencies') : {}, yield getDeps('peerDependencies'), yield getDeps('publicDependencies'))
+        // we assume no overlap in private/public/peer deps, otherwise public > peer > dev > private !PUBLIC_DEP_TEST
+        const deps = Object.assign(yield getDeps('dependencies'), ((self.name === '__root__') && true) ? yield getDeps('devDependencies') : {}, yield getDeps('peerDependencies'), yield getDeps('publicDependencies'))
         const dependencyNodes = yield cspAll(map(Object.keys(deps), pkgName => resolveNode(pkgName, deps[pkgName].semver || deps[pkgName].url)))
         for (let dn of dependencyNodes) {
           linkNodes(self, dn, deps[dn.name].semver || dn.version, deps[dn.name]['public'])

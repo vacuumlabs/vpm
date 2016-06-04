@@ -5,7 +5,7 @@ import csp from 'js-csp'
 export function install(rootPath) {
   return csp.go(function*() {
     let root = yield resolveRootNode(rootPath)
-    yield annealing(root)
+    //yield annealing(root)
     yield installTreeInto(root, rootPath)
     root.crawlAndPrint()
   })

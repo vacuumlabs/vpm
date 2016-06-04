@@ -20,7 +20,6 @@ describe('Main', function() {
       yield cspy(mkdirp, targetPath)
     }), () => done())
   })
-  /*
   it('should install simple peer-dep example', function(done) {
     csp.takeAsync(csp.go(function*() {
       enableTestMode()
@@ -28,7 +27,16 @@ describe('Main', function() {
       yield install(targetPath)
     }), () => done())
   })
+  /*
+  it('should install ied public', function(done) {
+    csp.takeAsync(csp.go(function*() {
+      enableTestMode()
+      yield cspCopyFile('./package.json', `${targetPath}/package.json`)
+      yield install(targetPath)
+    }), () => done())
+  })
   */
+  /*
   it('should try install itself with public', function(done) {
     csp.takeAsync(csp.go(function*() {
       enableTestMode()
@@ -36,7 +44,6 @@ describe('Main', function() {
       yield install(targetPath)
     }), () => done())
   })
-  /*
   it('should try install wordy with public', function(done) {
     csp.takeAsync(csp.go(function*() {
       enableTestMode()

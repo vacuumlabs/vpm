@@ -21,7 +21,7 @@ TODO each package should have object on Symbol.for('parsedInfo'):
 const registry = {}
 
 // returns channel containg info about single package
-export function _getPackageInfo(pkg) {
+export function downloadAndParsePackage(pkg) {
 
   // returns versions satisfying semver that change dependencies
   function availableMutations(pkgObj, previousVersion, semver) {
@@ -82,14 +82,14 @@ export function getPackageInfo(nrConnections = 6) {
   function* spawnWorker() {
     while (true) {
       let [pkg, resChan] = yield csp.take(ch)
-      let res = yield csp.take(_getPackageInfo(pkg))
+      let res = yield csp.take(downloadAndParsePackage(pkg))
       let errCount = 0
       // error handling
       while(res instanceof Error) {
         console.log(res)
         console.log(`Error while obtaining packageInfo for ${pkg}`)
         console.log(`Error count: ${++errCount}`)
-        res = yield csp.take(_getPackageInfo(pkg))
+        res = yield csp.take(downloadAndParsePackage(pkg))
       }
       yield csp.put(resChan, res)
     }
