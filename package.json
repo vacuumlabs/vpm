@@ -13,14 +13,18 @@
     "vpm": "test.js"
   },
   "devDependencies": {
+    "babel-core": "^6.3.26",
     "babel-eslint": "^5.0.0-beta6",
     "babel-polyfill": "^6.3.14",
-    "babel-core": "^6.3.26",
     "babel-preset-async-to-bluebird": "^1.0.0",
     "babel-preset-es2015": "^6.3.13",
     "babel-preset-stage-2": "^6.3.13",
+    "chai": "~3.5.0",
+    "co-mocha": "^1.1.2",
     "gulp": "^3.9.0",
-    "gulp-eslint": "^1.1.1"
+    "gulp-eslint": "^1.1.1",
+    "gulp-mocha": "~2.2.0",
+    "mocha": "~2.4.5"
   },
   "babel": {
     "presets": [
@@ -32,15 +36,20 @@
   "dependencies": {
     "continuation-local-storage": "^3.1.4",
     "fastqueue": "^0.1.0",
+    "generator-bind": "^1.0.1",
+    "gulp-babel": "~6.1.2",
     "gunzip-maybe": "^1.2.1",
     "http": "0.0.0",
     "js-csp": "^0.5.0",
+    "lodash": "3.10.1",
     "mkdirp": "^0.5.1",
+    "rimraf": "^2.5.0",
     "semver": "^5.1.0",
+    "semver-compare": "^1.0.0",
     "semver-resolves": "^1.0.0",
     "tar-fs": "^1.9.0",
-    "transducers.js": "^0.3.2",
     "tarball-extract": "0.0.3",
-    "rimraf": "^2.5.0"
+    "transducers.js": "~0.3.2",
+    "valid-url": "^1.0.9"
   }
 }

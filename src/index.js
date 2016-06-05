@@ -3,4 +3,5 @@
 require('babel-polyfill')
 require('babel-core/register')()
 // at the moment this points to whichever file is currently tested
-require('./registry.js')
+require('./main.js')
+
